@@ -344,10 +344,6 @@ export class StageRenderer {
     this.worldContainer.x = cx
     this.worldContainer.y = cy
 
-    this.selectionOverlay.scale.set(zoom)
-    this.selectionOverlay.x = cx
-    this.selectionOverlay.y = cy
-
     this.currentZoom = zoom
   }
 
