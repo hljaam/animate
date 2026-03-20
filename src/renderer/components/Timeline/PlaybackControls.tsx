@@ -59,7 +59,7 @@ const styles: Record<string, React.CSSProperties> = {
   controls: {
     display: 'flex',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
     padding: '0 8px',
     borderRight: '1px solid var(--border)',
     flexShrink: 0
@@ -68,24 +68,24 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--accent)',
     border: 'none',
     borderRadius: 4,
-    width: 28,
-    height: 28,
+    width: 36,
+    height: 36,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
     color: '#fff',
-    fontSize: 14
+    fontSize: 18
   },
   timecode: {
-    color: 'var(--text-secondary)',
-    fontSize: 11,
+    color: 'var(--text-primary)',
+    fontSize: 12,
     fontFamily: 'monospace',
     marginLeft: 8
   },
   frame: {
-    color: 'var(--text-muted)',
-    fontSize: 10,
+    color: 'var(--text-secondary)',
+    fontSize: 11,
     fontFamily: 'monospace'
   }
 }

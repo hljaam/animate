@@ -16,6 +16,10 @@
   --text-primary: #e0e0e0;
   --text-secondary: #999;
   --text-muted: #666;
+  --workspace-bg: #111111;
+  --text-label: #bbb;
+  --accent-dim: rgba(74, 158, 255, 0.3);
+  --focus-ring: rgba(74, 158, 255, 0.6);
   --danger: #e05252;
   --success: #52e079;
 
@@ -44,6 +48,7 @@ button {
   padding: 4px 12px;
   cursor: pointer;
   font-size: 13px;
+  min-height: 32px;
   transition: background 0.1s;
 }
 
@@ -70,6 +75,8 @@ button.icon-btn {
   background: transparent;
   border: none;
   padding: 4px 8px;
+  min-width: 36px;
+  min-height: 36px;
   color: var(--text-secondary);
 }
 
@@ -78,8 +85,13 @@ button.icon-btn:hover {
   background: var(--bg-hover);
 }
 
+button.icon-btn:active {
+  background: var(--accent-dim);
+}
+
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
+  filter: grayscale(0.5);
   cursor: not-allowed;
 }
 
@@ -117,8 +129,8 @@ input[type="color"] {
 }
 
 label {
-  color: var(--text-secondary);
-  font-size: 11px;
+  color: var(--text-label);
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -179,7 +191,7 @@ textarea:focus {
 .panel-header {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.8px;
@@ -231,4 +243,12 @@ textarea:focus {
   font-size: 16px;
   margin-bottom: 20px;
   color: var(--text-primary);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }

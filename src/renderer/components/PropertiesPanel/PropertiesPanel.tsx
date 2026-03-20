@@ -1,11 +1,17 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import DocumentTab from './DocumentTab'
 import LayerTab from './LayerTab'
+import { useEditorStore } from '../../store/editorStore'
 
 type Tab = 'document' | 'layer'
 
 export default function PropertiesPanel(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<Tab>('layer')
+  const selectedLayerId = useEditorStore((s) => s.selectedLayerId)
+
+  useEffect(() => {
+    setActiveTab(selectedLayerId ? 'layer' : 'document')
+  }, [selectedLayerId])
 
   return (
     <div className="panel" style={styles.panel}>
@@ -16,7 +22,7 @@ export default function PropertiesPanel(): React.ReactElement {
           style={{
             ...styles.tab,
             borderBottom: activeTab === 'document' ? '2px solid var(--accent)' : '2px solid transparent',
-            color: activeTab === 'document' ? 'var(--text-primary)' : 'var(--text-muted)'
+            color: activeTab === 'document' ? 'var(--text-primary)' : 'var(--text-secondary)'
           }}
           onClick={() => setActiveTab('document')}
         >
@@ -27,7 +33,7 @@ export default function PropertiesPanel(): React.ReactElement {
           style={{
             ...styles.tab,
             borderBottom: activeTab === 'layer' ? '2px solid var(--accent)' : '2px solid transparent',
-            color: activeTab === 'layer' ? 'var(--text-primary)' : 'var(--text-muted)'
+            color: activeTab === 'layer' ? 'var(--text-primary)' : 'var(--text-secondary)'
           }}
           onClick={() => setActiveTab('layer')}
         >
@@ -37,7 +43,7 @@ export default function PropertiesPanel(): React.ReactElement {
 
       {/* Content */}
       <div style={styles.content}>
-        {activeTab === 'document' ? <DocumentTab /> : <LayerTab />}
+        {activeTab === 'document' ? <DocumentTab /> : <LayerTab onSwitchTab={() => setActiveTab('document')} />}
       </div>
     </div>
   )
@@ -57,7 +63,7 @@ const styles: Record<string, React.CSSProperties> = {
   tab: {
     borderRadius: 0,
     padding: '8px 12px',
-    fontSize: 12,
+    fontSize: 13,
     flex: 1
   },
   content: {

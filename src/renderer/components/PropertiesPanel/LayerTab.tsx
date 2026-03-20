@@ -6,7 +6,7 @@ import { DEFAULT_LAYER_PROPS } from '../../types/project'
 import type { TrackProperty } from '../../types/project'
 import KeyframeDiamond from './KeyframeDiamond'
 import { AddLayerCommand } from '../../store/commands/AddLayerCommand'
-import { createTextLayer } from '../../utils/layerFactory'
+import { createTextLayer, createImageLayer } from '../../utils/layerFactory'
 
 const PROP_LABELS: Record<TrackProperty, string> = {
   x: 'X',
@@ -19,7 +19,11 @@ const PROP_LABELS: Record<TrackProperty, string> = {
 
 const TRANSFORM_PROPS: TrackProperty[] = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'opacity']
 
-export default function LayerTab(): React.ReactElement {
+interface LayerTabProps {
+  onSwitchTab?: () => void
+}
+
+export default function LayerTab({ onSwitchTab }: LayerTabProps): React.ReactElement {
   const project = useProjectStore((s) => s.project)
   const history = useProjectStore((s) => s.history)
   const selectedLayerId = useEditorStore((s) => s.selectedLayerId)
@@ -37,15 +41,46 @@ export default function LayerTab(): React.ReactElement {
     setSelectedLayerId(layer.id)
   }
 
+  async function handleImport(): Promise<void> {
+    if (!project) return
+    const results = await window.electronAPI.importAsset(project.id)
+    if (!results) return
+
+    const state = useProjectStore.getState()
+
+    for (const assetData of results) {
+      const asset = {
+        id: assetData.id,
+        type: 'image' as const,
+        name: assetData.name,
+        localBundlePath: assetData.localBundlePath,
+        width: assetData.width,
+        height: assetData.height
+      }
+      state.addAsset(asset)
+      const layer = createImageLayer(asset, project)
+      state.history.push(new AddLayerCommand(layer))
+      useEditorStore.getState().setSelectedLayerId(layer.id)
+    }
+  }
+
   if (!layer) {
     return (
-      <div style={{ padding: 12 }}>
-        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 12 }}>
-          No layer selected
+      <div style={styles.noSelection}>
+        <div style={styles.noSelectionHint}>
+          Select a layer on the stage or timeline to edit its properties.
         </div>
-        <button onClick={handleAddTextLayer} disabled={!project} style={{ width: '100%' }}>
-          + Add Text Layer
-        </button>
+        <div style={styles.noSelectionActions}>
+          <button onClick={handleImport} disabled={!project} style={{ width: '100%' }}>
+            Import Image
+          </button>
+          <button onClick={handleAddTextLayer} disabled={!project} style={{ width: '100%' }}>
+            + Add Text Layer
+          </button>
+          <button onClick={() => onSwitchTab?.()} disabled={!project} style={{ width: '100%' }}>
+            Set Background...
+          </button>
+        </div>
       </div>
     )
   }
@@ -253,5 +288,21 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: 16,
     padding: '4px 0'
+  },
+  noSelection: {
+    padding: '16px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12
+  },
+  noSelectionHint: {
+    color: 'var(--text-secondary)',
+    fontSize: 13,
+    lineHeight: 1.5
+  },
+  noSelectionActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8
   }
 }

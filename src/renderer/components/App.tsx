@@ -6,6 +6,7 @@ import PropertiesPanel from './PropertiesPanel/PropertiesPanel'
 import Timeline from './Timeline/Timeline'
 import NewProjectDialog from './Modals/NewProjectDialog'
 import ExportProgressModal from './Modals/ExportProgressModal'
+import CommandConsole from './CommandConsole/CommandConsole'
 import { useEditorStore } from '../store/editorStore'
 import { useProjectStore } from '../store/projectStore'
 import { usePlayback } from '../hooks/usePlayback'
@@ -14,6 +15,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 export default function App(): React.ReactElement {
   const showNewProjectDialog = useEditorStore((s) => s.showNewProjectDialog)
   const isExporting = useEditorStore((s) => s.isExporting)
+  const showCommandConsole = useEditorStore((s) => s.showCommandConsole)
   const project = useProjectStore((s) => s.project)
 
   usePlayback()
@@ -31,6 +33,7 @@ export default function App(): React.ReactElement {
 
       {showNewProjectDialog && <NewProjectDialog />}
       {isExporting && <ExportProgressModal />}
+      {showCommandConsole && <CommandConsole />}
     </div>
   )
 }

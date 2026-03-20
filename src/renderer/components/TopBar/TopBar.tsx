@@ -8,6 +8,16 @@ export default function TopBar(): React.ReactElement {
   const history = useProjectStore((s) => s.history)
   const { setShowNewProjectDialog } = useEditorStore()
   const { exportProject } = useExport()
+  const zoom = useEditorStore((s) => s.zoom)
+  const fitZoom = useEditorStore((s) => s.fitZoom)
+
+  const effectiveZoom = zoom || fitZoom
+  const zoomPercent = Math.round(effectiveZoom * 100)
+  const presets = [25, 50, 75, 100, 150, 200]
+
+  function clampZoom(z: number): number {
+    return Math.max(fitZoom * 0.1, Math.min(8, z))
+  }
 
   async function handleSave(): Promise<void> {
     if (!project) return
@@ -51,7 +61,7 @@ export default function TopBar(): React.ReactElement {
         </button>
       </div>
 
-      {/* Right: Undo/Redo + Export */}
+      {/* Right: Undo/Redo + Zoom + Export */}
       <div style={styles.right}>
         <button
           className="icon-btn"
@@ -70,6 +80,45 @@ export default function TopBar(): React.ReactElement {
           ↪ Redo
         </button>
         <div style={styles.sep} />
+        {project && (
+          <>
+            <button
+              className="icon-btn"
+              title="Zoom out"
+              onClick={() => useEditorStore.getState().setViewport(clampZoom(effectiveZoom / 1.25), 0, 0)}
+            >
+              −
+            </button>
+            <select
+              value={zoomPercent}
+              onChange={(e) => useEditorStore.getState().setViewport(Number(e.target.value) / 100, 0, 0)}
+              style={styles.zoomSelect}
+              title="Zoom level"
+            >
+              {!presets.includes(zoomPercent) && (
+                <option value={zoomPercent}>{zoomPercent}%</option>
+              )}
+              {presets.map((p) => (
+                <option key={p} value={p}>{p}%</option>
+              ))}
+            </select>
+            <button
+              className="icon-btn"
+              title="Zoom in"
+              onClick={() => useEditorStore.getState().setViewport(clampZoom(effectiveZoom * 1.25), 0, 0)}
+            >
+              +
+            </button>
+            <button
+              className="icon-btn"
+              title="Fit to window (Ctrl+0)"
+              onClick={() => useEditorStore.getState().setViewport(fitZoom, 0, 0)}
+            >
+              Fit
+            </button>
+            <div style={styles.sep} />
+          </>
+        )}
         <button
           className="primary"
           onClick={exportProject}
@@ -130,5 +179,14 @@ const styles: Record<string, React.CSSProperties> = {
     height: 24,
     background: 'var(--border)',
     margin: '0 4px'
+  },
+  zoomSelect: {
+    background: 'var(--bg-tertiary)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border)',
+    borderRadius: 4,
+    padding: '2px 4px',
+    fontSize: 12,
+    cursor: 'pointer'
   }
 }

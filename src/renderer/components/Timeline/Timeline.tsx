@@ -17,6 +17,29 @@ export default function Timeline(): React.ReactElement {
   const setSelectedLayerId = useEditorStore((s) => s.setSelectedLayerId)
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  function handleTrackMouseDown(e: React.MouseEvent): void {
+    const el = scrollRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const relX = e.clientX - rect.left + el.scrollLeft - LABEL_WIDTH
+    if (relX < 0) return // click was in the label area
+
+    setIsPlaying(false)
+    setCurrentFrame(Math.max(0, Math.min(Math.round(relX / PIXELS_PER_FRAME), totalFrames - 1)))
+
+    function onMove(me: MouseEvent): void {
+      const r = el.getBoundingClientRect()
+      const rx = me.clientX - r.left + el.scrollLeft - LABEL_WIDTH
+      setCurrentFrame(Math.max(0, Math.min(Math.round(rx / PIXELS_PER_FRAME), totalFrames - 1)))
+    }
+    function onUp(): void {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   const totalFrames = project?.durationFrames ?? 0
   const totalWidth = totalFrames * PIXELS_PER_FRAME + LABEL_WIDTH
 
@@ -57,7 +80,7 @@ export default function Timeline(): React.ReactElement {
         />
 
         {/* Scrollable layer rows */}
-        <div ref={scrollRef} style={styles.layerScroll}>
+        <div ref={scrollRef} style={styles.layerScroll} onMouseDown={handleTrackMouseDown}>
           <div style={{ width: totalWidth, position: 'relative', minWidth: '100%' }}>
             {/* Playhead vertical line */}
             <div

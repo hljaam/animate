@@ -59,7 +59,7 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
           top: isMajor ? 8 : 14,
           width: 1,
           height: isMajor ? 16 : 10,
-          background: 'var(--border-light)'
+          background: isMajor ? '#888' : '#666'
         }}
       />,
       isMajor && (
@@ -69,8 +69,8 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
             position: 'absolute',
             left: x + 2,
             top: 4,
-            fontSize: 9,
-            color: 'var(--text-muted)',
+            fontSize: 10,
+            color: '#aaa',
             fontFamily: 'monospace',
             pointerEvents: 'none'
           }}
@@ -106,7 +106,7 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
           position: 'absolute',
           left: playheadX,
           top: 0,
-          width: 2,
+          width: 3,
           height: '100%',
           background: 'var(--accent)',
           pointerEvents: 'none'
@@ -115,15 +115,29 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
       <div
         style={{
           position: 'absolute',
-          left: playheadX - 5,
+          left: playheadX - 7,
           top: 0,
-          width: 10,
-          height: 10,
+          width: 14,
+          height: 12,
           background: 'var(--accent)',
           clipPath: 'polygon(50% 100%, 0 0, 100% 0)',
           pointerEvents: 'none'
         }}
       />
+      {/* Frame number label */}
+      <div
+        style={{
+          position: 'absolute',
+          left: playheadX + 6,
+          top: 2,
+          fontSize: 10,
+          color: 'var(--accent)',
+          fontFamily: 'monospace',
+          pointerEvents: 'none'
+        }}
+      >
+        {currentFrame}
+      </div>
     </div>
   )
 }

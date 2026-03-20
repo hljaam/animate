@@ -14,6 +14,22 @@ export function useKeyboardShortcuts(): void {
       const { isPlaying, setIsPlaying, selectedLayerId } = useEditorStore.getState()
 
       if (e.ctrlKey || e.metaKey) {
+        if (e.key === '0') {
+          e.preventDefault()
+          const { fitZoom, setViewport } = useEditorStore.getState()
+          setViewport(fitZoom, 0, 0)
+          return
+        }
+        if (e.key === '1') {
+          e.preventDefault()
+          useEditorStore.getState().setViewport(1, 0, 0)
+          return
+        }
+        if (e.key === 'k') {
+          e.preventDefault()
+          useEditorStore.getState().setShowCommandConsole(true)
+          return
+        }
         if (e.key === 'z' && !e.shiftKey) {
           e.preventDefault()
           history.undo()

@@ -55,7 +55,8 @@ export function usePixiStage(containerRef: React.RefObject<HTMLDivElement | null
         if (ps.project) {
           renderer!.setScene(ps.project, es.currentFrame, es.selectedLayerId)
           const { width, height } = container.getBoundingClientRect()
-          renderer!.applyViewport(width, height, ps.project.width, ps.project.height)
+          renderer!.applyViewport(width, height, ps.project.width, ps.project.height,
+            es.zoom, es.panX, es.panY)
         }
 
         unsubProject = useProjectStore.subscribe((state) => {
@@ -68,6 +69,9 @@ export function usePixiStage(containerRef: React.RefObject<HTMLDivElement | null
           const ps = useProjectStore.getState()
           if (!ps.project || !renderer) return
           renderer!.setScene(ps.project, state.currentFrame, state.selectedLayerId)
+          const { width, height } = container.getBoundingClientRect()
+          renderer!.applyViewport(width, height, ps.project.width, ps.project.height,
+            state.zoom, state.panX, state.panY)
         })
       }).catch((err) => {
         console.error('PixiJS init failed:', err)

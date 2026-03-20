@@ -12,6 +12,8 @@ export class StageRenderer {
   private initialized = false
   private worldContainer!: PIXI.Container
   private selectionOverlay!: PIXI.Graphics
+  private stageBg!: PIXI.Graphics
+  private lastBgKey = ''
 
   // Caches
   private spriteCache = new Map<string, PIXI.Sprite>()
@@ -28,6 +30,7 @@ export class StageRenderer {
   private dragStartPointer = { x: 0, y: 0 }
   private dragStartProps = { x: 0, y: 0 }
   private isDragging = false
+  private currentZoom = 1
 
   // Current state
   private currentProject: Project | null = null
@@ -59,6 +62,8 @@ export class StageRenderer {
 
     this.worldContainer = new PIXI.Container()
     this.selectionOverlay = new PIXI.Graphics()
+    this.stageBg = new PIXI.Graphics()
+    this.worldContainer.addChildAt(this.stageBg, 0)
     this.app.stage.addChild(this.worldContainer)
     this.app.stage.addChild(this.selectionOverlay)
 
@@ -94,9 +99,24 @@ export class StageRenderer {
     this.renderScene(this.currentProject, this.currentFrame)
   }
 
+  private drawStageBg(w: number, h: number, bgColor: string): void {
+    const key = `${w}:${h}:${bgColor}`
+    if (key === this.lastBgKey) return
+    this.lastBgKey = key
+
+    this.stageBg.clear()
+    // Shadow
+    this.stageBg.rect(3, 3, w, h).fill({ color: 0x000000, alpha: 0.25 })
+    // Fill
+    this.stageBg.rect(0, 0, w, h).fill(bgColor)
+    // Border
+    this.stageBg.rect(0, 0, w, h).stroke({ color: 0x555555, width: 1, alpha: 0.8 })
+  }
+
   private renderScene(project: Project, frame: number): void {
-    // Update background
-    this.app.renderer.background.color = project.backgroundColor || '#000000'
+    // Update background — workspace is dark gray, artboard is distinct
+    this.app.renderer.background.color = '#111111'
+    this.drawStageBg(project.width, project.height, project.backgroundColor || '#000000')
 
     // Sort layers by order (lower order = bottom)
     const sortedLayers = [...project.layers].sort((a, b) => a.order - b.order)
@@ -168,12 +188,10 @@ export class StageRenderer {
     }
 
     // Load texture if needed
-    const textureUrl = `file://${asset.localBundlePath.replace(/\\/g, '/')}`
     const cachedTexture = this.textureCache.get(asset.id)
 
-    if (!cachedTexture || cachedTexture.label !== textureUrl) {
-      PIXI.Assets.load(textureUrl).then((texture: PIXI.Texture) => {
-        texture.label = textureUrl
+    if (!cachedTexture) {
+      this.loadTextureViaImg(asset.localBundlePath).then((texture) => {
         this.textureCache.set(asset.id, texture)
         sprite!.texture = texture
         this.dirty = true
@@ -273,8 +291,9 @@ export class StageRenderer {
   private handlePointerMove(e: PIXI.FederatedPointerEvent): void {
     if (!this.isDragging || !this.dragLayerId) return
 
-    const dx = e.globalX - this.dragStartPointer.x
-    const dy = e.globalY - this.dragStartPointer.y
+    const scale = this.currentZoom || 1
+    const dx = (e.globalX - this.dragStartPointer.x) / scale
+    const dy = (e.globalY - this.dragStartPointer.y) / scale
 
     const newX = this.dragStartProps.x + dx
     const newY = this.dragStartProps.y + dy
@@ -307,31 +326,44 @@ export class StageRenderer {
   }
 
   /**
-   * Apply viewport zoom/offset so the project canvas fits the screen area
+   * Apply viewport zoom/pan so the project canvas is positioned on screen
    */
-  applyViewport(containerWidth: number, containerHeight: number, projectWidth: number, projectHeight: number): void {
-    const scaleX = containerWidth / projectWidth
-    const scaleY = containerHeight / projectHeight
-    const scale = Math.min(scaleX, scaleY, 1)
+  applyViewport(
+    containerW: number,
+    containerH: number,
+    projectW: number,
+    projectH: number,
+    zoom: number,
+    panX: number,
+    panY: number
+  ): void {
+    const cx = (containerW - projectW * zoom) / 2 + panX
+    const cy = (containerH - projectH * zoom) / 2 + panY
 
-    const scaledW = projectWidth * scale
-    const scaledH = projectHeight * scale
-    const offsetX = (containerWidth - scaledW) / 2
-    const offsetY = (containerHeight - scaledH) / 2
+    this.worldContainer.scale.set(zoom)
+    this.worldContainer.x = cx
+    this.worldContainer.y = cy
 
-    this.worldContainer.scale.set(scale)
-    this.worldContainer.x = offsetX
-    this.worldContainer.y = offsetY
+    this.selectionOverlay.scale.set(zoom)
+    this.selectionOverlay.x = cx
+    this.selectionOverlay.y = cy
 
-    this.selectionOverlay.scale.set(scale)
-    this.selectionOverlay.x = offsetX
-    this.selectionOverlay.y = offsetY
+    this.currentZoom = zoom
   }
 
   resize(width: number, height: number): void {
     if (!this.initialized) return
     this.app.renderer.resize(width, height)
     this.dirty = true
+  }
+
+  private loadTextureViaImg(filePath: string): Promise<PIXI.Texture> {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(PIXI.Texture.from(img))
+      img.onerror = reject
+      img.src = `file://${filePath.replace(/\\/g, '/')}`
+    })
   }
 
   destroy(): void {
