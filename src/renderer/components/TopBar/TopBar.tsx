@@ -10,6 +10,7 @@ export default function TopBar(): React.ReactElement {
   const { exportProject } = useExport()
   const zoom = useEditorStore((s) => s.zoom)
   const fitZoom = useEditorStore((s) => s.fitZoom)
+  const activeTool = useEditorStore((s) => s.activeTool)
 
   const effectiveZoom = zoom || fitZoom
   const zoomPercent = Math.round(effectiveZoom * 100)
@@ -34,6 +35,38 @@ export default function TopBar(): React.ReactElement {
     useEditorStore.getState().setCurrentFrame(0)
   }
 
+  async function handleOpenFla(): Promise<void> {
+    const result = await window.electronAPI.importFla()
+    if (!result) return
+    useProjectStore.getState().setProject(result as any)
+    useEditorStore.getState().setSelectedLayerId(null)
+    useEditorStore.getState().setCurrentFrame(0)
+  }
+
+  async function handleOpenXfl(): Promise<void> {
+    const result = await window.electronAPI.importXfl()
+    if (!result) return
+    useProjectStore.getState().setProject(result as any)
+    useEditorStore.getState().setSelectedLayerId(null)
+    useEditorStore.getState().setCurrentFrame(0)
+  }
+
+  async function handleOpenSwf(): Promise<void> {
+    const result = await window.electronAPI.importSwf()
+    if (!result) return
+    useProjectStore.getState().setProject(result as any)
+    useEditorStore.getState().setSelectedLayerId(null)
+    useEditorStore.getState().setCurrentFrame(0)
+  }
+
+  async function handleImportAnimate(): Promise<void> {
+    const result = await window.electronAPI.importAnimate()
+    if (!result) return
+    useProjectStore.getState().setProject(result as any)
+    useEditorStore.getState().setSelectedLayerId(null)
+    useEditorStore.getState().setCurrentFrame(0)
+  }
+
   return (
     <div style={styles.topbar}>
       {/* Logo / Project Name */}
@@ -44,8 +77,25 @@ export default function TopBar(): React.ReactElement {
         )}
       </div>
 
-      {/* Center: File actions */}
+      {/* Center: Tools + File actions */}
       <div style={styles.center}>
+        <button
+          className="icon-btn"
+          title="Select Tool (V)"
+          onClick={() => useEditorStore.getState().setActiveTool('select')}
+          style={activeTool === 'select' ? styles.toolActive : undefined}
+        >
+          V
+        </button>
+        <button
+          className="icon-btn"
+          title="Hand/Pan Tool (H)"
+          onClick={() => useEditorStore.getState().setActiveTool('hand')}
+          style={activeTool === 'hand' ? styles.toolActive : undefined}
+        >
+          H
+        </button>
+        <div style={styles.sep} />
         <button
           className="icon-btn"
           title="New Project"
@@ -55,6 +105,18 @@ export default function TopBar(): React.ReactElement {
         </button>
         <button className="icon-btn" title="Open Project" onClick={handleOpen}>
           Open
+        </button>
+        <button className="icon-btn" title="Open FLA File" onClick={handleOpenFla}>
+          FLA
+        </button>
+        <button className="icon-btn" title="Open XFL Folder" onClick={handleOpenXfl}>
+          XFL
+        </button>
+        <button className="icon-btn" title="Open SWF File" onClick={handleOpenSwf}>
+          SWF
+        </button>
+        <button className="icon-btn" title="Import from Adobe Animate (FLA/XFL + SWF)" onClick={handleImportAnimate}>
+          Import
         </button>
         <button className="icon-btn" title="Save Project" onClick={handleSave} disabled={!project}>
           Save
@@ -179,6 +241,11 @@ const styles: Record<string, React.CSSProperties> = {
     height: 24,
     background: 'var(--border)',
     margin: '0 4px'
+  },
+  toolActive: {
+    background: 'var(--accent)',
+    color: '#fff',
+    borderRadius: 4
   },
   zoomSelect: {
     background: 'var(--bg-tertiary)',

@@ -44,6 +44,12 @@ export function getInterpolatedProps(
       continue
     }
 
+    // Step easing: hold the value until the next keyframe (no interpolation)
+    if (before.easing === 'step') {
+      result[prop] = before.value
+      continue
+    }
+
     const t = (frame - before.frame) / range
     const easedT = applyEasing(t, before.easing)
     result[prop] = lerp(before.value, after.value, easedT)

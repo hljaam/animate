@@ -73,69 +73,182 @@ const StageContainer = memo(function StageContainer(): React.ReactElement {
     return () => el.removeEventListener('wheel', handleWheel)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Space + drag / middle-mouse drag → pan
+  // Pan tool: state machine with Space hold, H tool, middle-mouse, inertia, scroll-to-pan
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
     let spaceDown = false
     let isPanning = false
+    let didDragDuringSpace = false
     let panStart = { x: 0, y: 0 }
     let mouseStart = { x: 0, y: 0 }
 
-    function onKeyDown(e: KeyboardEvent): void {
-      if (e.code === 'Space' && !spaceDown) {
-        spaceDown = true
+    // Velocity tracking for inertia
+    const trail: Array<{ x: number; y: number; t: number }> = []
+    let inertiaRaf = 0
+    let inertiaVx = 0
+    let inertiaVy = 0
+
+    function stopInertia(): void {
+      if (inertiaRaf) {
+        cancelAnimationFrame(inertiaRaf)
+        inertiaRaf = 0
+      }
+    }
+
+    function isPanReady(): boolean {
+      return spaceDown || useEditorStore.getState().activeTool === 'hand'
+    }
+
+    function updateCursor(): void {
+      if (isPanning) {
+        el!.style.cursor = 'grabbing'
+      } else if (isPanReady()) {
         el!.style.cursor = 'grab'
+      } else {
+        el!.style.cursor = ''
+      }
+    }
+
+    function onKeyDown(e: KeyboardEvent): void {
+      const tag = (e.target as HTMLElement).tagName.toLowerCase()
+      if (tag === 'input' || tag === 'textarea') return
+      if (e.code === 'Space' && !spaceDown) {
+        e.preventDefault()
+        spaceDown = true
+        didDragDuringSpace = false
+        stopInertia()
+        updateCursor()
       }
     }
 
     function onKeyUp(e: KeyboardEvent): void {
       if (e.code === 'Space') {
         spaceDown = false
-        if (!isPanning) el!.style.cursor = ''
+        // If Space was tapped without dragging, toggle play/pause
+        if (!didDragDuringSpace && !isPanning) {
+          const { isPlaying, setIsPlaying } = useEditorStore.getState()
+          setIsPlaying(!isPlaying)
+        }
+        updateCursor()
       }
     }
 
     function onPointerDown(e: PointerEvent): void {
-      if (e.button === 1 || (e.button === 0 && spaceDown)) {
+      // Middle mouse always pans; left click pans when pan-ready
+      if (e.button === 1 || (e.button === 0 && isPanReady())) {
+        stopInertia()
         isPanning = true
+        if (spaceDown) didDragDuringSpace = true
         const { panX, panY } = useEditorStore.getState()
         panStart = { x: panX, y: panY }
         mouseStart = { x: e.clientX, y: e.clientY }
-        el!.style.cursor = 'grabbing'
+        trail.length = 0
+        trail.push({ x: e.clientX, y: e.clientY, t: performance.now() })
         el!.setPointerCapture(e.pointerId)
+        updateCursor()
         e.preventDefault()
       }
     }
 
     function onPointerMove(e: PointerEvent): void {
       if (!isPanning) return
+      if (spaceDown) didDragDuringSpace = true
       const { zoom } = useEditorStore.getState()
       const newPanX = panStart.x + (e.clientX - mouseStart.x)
       const newPanY = panStart.y + (e.clientY - mouseStart.y)
       useEditorStore.getState().setViewport(zoom, newPanX, newPanY)
+
+      // Track recent positions for velocity
+      const now = performance.now()
+      trail.push({ x: e.clientX, y: e.clientY, t: now })
+      // Keep only last 80ms of trail
+      while (trail.length > 1 && now - trail[0].t > 80) trail.shift()
     }
 
     function onPointerUp(): void {
-      if (isPanning) {
-        isPanning = false
-        el!.style.cursor = spaceDown ? 'grab' : ''
+      if (!isPanning) return
+      isPanning = false
+
+      // Compute velocity for inertia
+      const now = performance.now()
+      if (trail.length >= 2) {
+        const first = trail[0]
+        const last = trail[trail.length - 1]
+        const dt = (last.t - first.t) / 1000 // seconds
+        if (dt > 0.005) {
+          inertiaVx = (last.x - first.x) / dt
+          inertiaVy = (last.y - first.y) / dt
+          const speed = Math.sqrt(inertiaVx * inertiaVx + inertiaVy * inertiaVy)
+          if (speed > 100) {
+            // Start inertia animation
+            let lastTime = performance.now()
+            function inertiaFrame(time: number): void {
+              const frameDt = (time - lastTime) / 1000
+              lastTime = time
+              inertiaVx *= 0.92
+              inertiaVy *= 0.92
+              const { zoom, panX, panY } = useEditorStore.getState()
+              useEditorStore.getState().setViewport(
+                zoom,
+                panX + inertiaVx * frameDt,
+                panY + inertiaVy * frameDt
+              )
+              if (Math.abs(inertiaVx) > 1 || Math.abs(inertiaVy) > 1) {
+                inertiaRaf = requestAnimationFrame(inertiaFrame)
+              } else {
+                inertiaRaf = 0
+              }
+            }
+            inertiaRaf = requestAnimationFrame(inertiaFrame)
+          }
+        }
+      }
+      trail.length = 0
+      updateCursor()
+    }
+
+    // Scroll-to-pan: plain wheel pans, Ctrl/Cmd+wheel is handled by the zoom handler
+    function onWheel(e: WheelEvent): void {
+      if (e.ctrlKey || e.metaKey) return // let zoom handler deal with it
+      e.preventDefault()
+      stopInertia()
+      const { zoom, panX, panY } = useEditorStore.getState()
+      if (e.shiftKey) {
+        // Shift+wheel → horizontal pan
+        useEditorStore.getState().setViewport(zoom, panX - e.deltaY, panY)
+      } else {
+        // Plain wheel → vertical pan (deltaX for horizontal if trackpad)
+        useEditorStore.getState().setViewport(zoom, panX - e.deltaX, panY - e.deltaY)
       }
     }
+
+    // Listen for activeTool changes to update cursor
+    let prevTool = useEditorStore.getState().activeTool
+    const unsubTool = useEditorStore.subscribe((state) => {
+      if (state.activeTool !== prevTool) {
+        prevTool = state.activeTool
+        if (!isPanning) updateCursor()
+      }
+    })
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     el.addEventListener('pointerdown', onPointerDown)
     el.addEventListener('pointermove', onPointerMove)
     el.addEventListener('pointerup', onPointerUp)
+    el.addEventListener('wheel', onWheel, { passive: false })
 
     return () => {
+      stopInertia()
+      unsubTool()
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       el.removeEventListener('pointerdown', onPointerDown)
       el.removeEventListener('pointermove', onPointerMove)
       el.removeEventListener('pointerup', onPointerUp)
+      el.removeEventListener('wheel', onWheel)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

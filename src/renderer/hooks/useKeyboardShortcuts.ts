@@ -43,9 +43,18 @@ export function useKeyboardShortcuts(): void {
         return
       }
 
-      if (e.key === ' ') {
+      // Space is handled by StageContainer (hold=pan, tap=play toggle)
+
+      if (e.key === 'h' || e.key === 'H') {
         e.preventDefault()
-        setIsPlaying(!isPlaying)
+        const { activeTool, setActiveTool } = useEditorStore.getState()
+        setActiveTool(activeTool === 'hand' ? 'select' : 'hand')
+        return
+      }
+
+      if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault()
+        useEditorStore.getState().setActiveTool('select')
         return
       }
 
