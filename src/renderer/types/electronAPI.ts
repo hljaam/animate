@@ -1,9 +1,6 @@
 export interface ElectronAPI {
   importAsset: (projectId: string) => Promise<AssetResult[] | null>
-  importFla: () => Promise<FlaProjectResult | null>
-  importXfl: () => Promise<FlaProjectResult | null>
-  importSwf: () => Promise<FlaProjectResult | null>
-  importAnimate: () => Promise<FlaProjectResult | null>
+  importSwf: () => Promise<SwfProjectResult | null>
   saveProject: (projectJson: string) => Promise<{ success: boolean; filePath?: string }>
   openProject: () => Promise<{ filePath: string; data: string } | null>
   exportStart: (payload: ExportStartPayload) => Promise<{ success: boolean }>
@@ -41,21 +38,49 @@ interface ExportFinalizeResult {
   error?: string
 }
 
-interface FlaShapePath {
+interface SwfShapePath {
   fillColor?: string
   strokeColor?: string
   strokeWidth?: number
   bitmapFillAssetId?: string
   points: Array<{ x: number; y: number }>
+  subPaths?: Array<Array<{ x: number; y: number }>>
 }
 
-interface FlaShapeData {
-  paths: FlaShapePath[]
+interface SwfShapeData {
+  paths: SwfShapePath[]
   originX: number
   originY: number
 }
 
-interface FlaProjectResult {
+interface SwfSymbolDef {
+  id: string
+  name: string
+  libraryItemName: string
+  fps: number
+  durationFrames: number
+  layers: Array<SwfLayerResult>
+}
+
+interface SwfLayerResult {
+  id: string
+  name: string
+  type: 'image' | 'shape' | 'text' | 'symbol'
+  assetId?: string
+  shapeData?: SwfShapeData
+  symbolId?: string
+  visible: boolean
+  locked: boolean
+  order: number
+  startFrame: number
+  endFrame: number
+  tracks: Array<{
+    property: string
+    keyframes: Array<{ frame: number; value: number; easing: string }>
+  }>
+}
+
+interface SwfProjectResult {
   id: string
   name: string
   width: number
@@ -64,22 +89,8 @@ interface FlaProjectResult {
   durationFrames: number
   backgroundColor: string
   assets: AssetResult[]
-  layers: Array<{
-    id: string
-    name: string
-    type: 'image' | 'shape'
-    assetId?: string
-    shapeData?: FlaShapeData
-    visible: boolean
-    locked: boolean
-    order: number
-    startFrame: number
-    endFrame: number
-    tracks: Array<{
-      property: string
-      keyframes: Array<{ frame: number; value: number; easing: string }>
-    }>
-  }>
+  layers: SwfLayerResult[]
+  symbols?: SwfSymbolDef[]
 }
 
 declare global {

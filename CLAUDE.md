@@ -25,14 +25,16 @@ This is an **Electron desktop 2D animation editor** with three processes:
 
 IPC is the only bridge between renderer and main. All file operations go through `window.electronAPI`. When adding new IPC methods, you must update all three layers: handler in `src/main/ipc/`, bridge in `src/preload/index.ts`, and type in `src/renderer/types/electronAPI.ts`.
 
-Current IPC methods: `importAsset`, `importFla`, `importXfl`, `importSwf`, `saveProject`, `openProject`, `exportStart`, `exportFrame`, `exportFinalize`, `onExportProgress`.
+All IPC handlers are registered centrally in `src/main/ipc/index.ts` via `registerAllHandlers()`.
+
+Current IPC methods: `importAsset`, `importSwf`, `saveProject`, `openProject`, `exportStart`, `exportFrame`, `exportFinalize`, `onExportProgress`.
 
 ### State Management
 
 Two Zustand stores:
 
 - **`projectStore`** — project data (layers, assets, keyframes, tracks). Mutations go through Command classes for undo/redo. Direct mutators (`*Direct` methods like `addLayerDirect`, `removeLayerDirect`, `setKeyframeDirect`) are only called by Command classes — never from UI components.
-- **`editorStore`** — ephemeral UI state (selectedLayerId, currentFrame, isPlaying, zoom, panX/Y, exportProgress)
+- **`editorStore`** — ephemeral UI state (selectedLayerId, currentFrame, isPlaying, zoom, panX/Y, activeTool, exportProgress, showCommandConsole, showNewProjectDialog)
 
 **Critical convention:** All user-facing mutations to project data must go through a Command (`src/renderer/store/commands/`). Commands implement `ICommand` with `execute()`, `undo()`, and `description`. `CommandHistory` (inside projectStore) manages the undo/redo stack. Existing commands: AddLayer, RemoveLayer, UpdateLayer, AddKeyframe, UpdateKeyframe, DuplicateLayer.
 
@@ -49,21 +51,41 @@ Project → layers: Layer[] → tracks: PropertyTrack[] → keyframes: Keyframe[
 Project → assets: Asset[]
 ```
 
-Three layer types: `image` (references asset by `assetId`), `text` (has `textData`), `shape` (has `shapeData` with fill paths).
+Four layer types: `image` (references asset by `assetId`), `text` (has `textData`), `shape` (has `shapeData` with fill paths), `symbol` (nested timeline via `symbolId`).
 
 Properties animated per layer: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `opacity`. Each property has its own `PropertyTrack` with sorted keyframes.
 
-Asset images are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId`.
+Layers also support: `blendMode`, `tintColor`/`tintAmount`, `filters` (blur/dropShadow/glow via `FilterConfig[]`), `assetSwaps` (frame-by-frame asset swapping), `isMask`/`maskLayerId` (masking), and `shapeKeyframes` (shape morphing).
 
-### .fla Import Pipeline
+Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId`.
 
-`src/main/ipc/flaHandlers.ts` (~660 lines) handles Adobe Animate .fla import:
-1. .fla files are ZIP archives — extracted with `adm-zip`
-2. Parses `DOMDocument.xml` for canvas settings and media references
-3. Extracts bitmaps from `bin/` (zlib-compressed ARGB → converted to PNG via `pngjs`) or `LIBRARY/`
-4. Parses timeline layers, resolves `DOMSymbolInstance` references recursively to find bitmaps
-5. Decomposes Flash matrix (a,b,c,d,tx,ty) into scaleX, scaleY, rotation for keyframes
-6. `flashShapeRasterizer.ts` handles vector shape parsing (moveTo/lineTo/quadratic Bezier from Flash edge format)
+### Hooks
+
+Key React hooks in `src/renderer/hooks/`:
+
+- **`usePixiStage`** — PixiJS lifecycle, store subscriptions, renders scene on state changes
+- **`usePlayback`** — Frame-based playback loop via requestAnimationFrame
+- **`useExport`** — Creates off-screen StageRenderer for frame capture and export orchestration
+- **`useKeyboardShortcuts`** — Global keyboard bindings (see Keyboard Shortcuts below)
+
+### Command Console
+
+`Ctrl+K` opens a text command console (`src/renderer/console/`). Parser (`commandParser.ts`) and executor (`commandExecutor.ts`) support commands: add-image, add-text, select, move, scale, rotate, opacity, frame, keyframe, duplicate, delete, hide, lock, export-mp4. Supports multi-word layer names and quoted strings.
+
+### Keyboard Shortcuts
+
+`Ctrl+0` fit-to-canvas, `Ctrl+1` 100% zoom, `Ctrl+K` command console, `Ctrl+Z` undo, `Ctrl+Shift+Z`/`Ctrl+Y` redo, `H` hand tool, `V` select tool, `Delete`/`Backspace` remove selected layer, `Space+drag` pan, middle-mouse-drag pan, `Ctrl+wheel` zoom.
+
+### SWF Import & FFDec Integration
+
+SWF import uses JPEXS FFDec (`ffdec.jar`) to decompile SWFs. Key files in `src/main/ipc/`:
+
+- **`ffdecService.ts`** — Wrapper around FFDec CLI. Resolves Java path (bundled JRE in `bin/jre/` for dev, `extraResources/ffdec/jre/` for prod, or system `java` as fallback). Exports `dumpSwf()` (XML structure) and `exportAssets()`.
+- **`ffdecAssetExtractor.ts`** — Extracts images, shapes (SVG), sounds, fonts from SWF via FFDec. Maps SWF character IDs to extracted files.
+- **`ffdecTimelineParser.ts`** — Parses FFDec XML dump to rebuild timeline. Tracks display list per frame via PlaceObject/RemoveObject tags, decomposes Flash matrices, builds PropertyTrack keyframes.
+- **`matrixUtils.ts`** — Flash matrix decomposition utilities used by the timeline parser.
+- **`svgToShapeData.ts`** — Converts JPEXS-exported SVG vector shapes into the app's `ShapeData` format.
+- **`swfHandlers.ts`** — Registers `'import-swf'` IPC handler. Extracts assets and parses timeline directly via FFDec.
 
 ### Export Pipeline
 
@@ -89,3 +111,4 @@ Timeline (playback controls, layer rows, keyframe tracks)
 - `tsconfig.json` / `tsconfig.node.json` / `tsconfig.web.json` — separate TS configs for each process
 - `package.json` `build` section — electron-builder packaging config (NSIS for Windows, DMG for Mac, AppImage for Linux)
 - FFmpeg binary is bundled via `extraResources` in the electron-builder config
+- FFDec (JPEXS): `bin/ffdec.jar` + `bin/jre/` in dev; `extraResources/ffdec/` in prod

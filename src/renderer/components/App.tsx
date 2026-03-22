@@ -1,6 +1,6 @@
 import React from 'react'
 import TopBar from './TopBar/TopBar'
-import AssetsPanel from './AssetsPanel/AssetsPanel'
+import LibraryPanel from './LibraryPanel/LibraryPanel'
 import StageContainer from './Stage/StageContainer'
 import PropertiesPanel from './PropertiesPanel/PropertiesPanel'
 import Timeline from './Timeline/Timeline'
@@ -25,7 +25,7 @@ export default function App(): React.ReactElement {
     <div style={styles.root}>
       <TopBar />
       <div style={styles.workArea}>
-        <AssetsPanel />
+        <LibraryPanel />
         <StageContainer />
         <PropertiesPanel />
       </div>

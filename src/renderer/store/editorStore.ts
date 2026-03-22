@@ -15,6 +15,7 @@ interface EditorState {
   isExporting: boolean
   exportProgress: number
   showCommandConsole: boolean
+  editingSymbolId: string | null
 
   setSelectedLayerId: (id: string | null) => void
   setCurrentFrame: (frame: number) => void
@@ -27,6 +28,7 @@ interface EditorState {
   setIsExporting: (exporting: boolean) => void
   setExportProgress: (progress: number) => void
   setShowCommandConsole: (show: boolean) => void
+  setEditingSymbolId: (id: string | null) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -42,6 +44,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   isExporting: false,
   exportProgress: 0,
   showCommandConsole: false,
+  editingSymbolId: null,
 
   setSelectedLayerId: (id) => set({ selectedLayerId: id }),
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
@@ -53,5 +56,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   setShowNewProjectDialog: (show) => set({ showNewProjectDialog: show }),
   setIsExporting: (exporting) => set({ isExporting: exporting }),
   setExportProgress: (progress) => set({ exportProgress: progress }),
-  setShowCommandConsole: (show) => set({ showCommandConsole: show })
+  setShowCommandConsole: (show) => set({ showCommandConsole: show }),
+  setEditingSymbolId: (id) => set({ editingSymbolId: id, selectedLayerId: null })
 }))

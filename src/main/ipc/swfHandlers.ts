@@ -2,22 +2,9 @@ import { ipcMain, dialog, app } from 'electron'
 import { mkdirSync } from 'fs'
 import { join, basename } from 'path'
 import { nanoid } from 'nanoid'
-import { checkJavaAvailable, exportAssets } from './ffdecService'
-import {
-  importFromSource,
-  FolderFileSource,
-  type FlaAsset
-} from './flaHandlers'
-
-// ── Types ──────────────────────────────────────────────────────────────────
-
-export interface AssetInfo {
-  id: string
-  name: string
-  localBundlePath: string
-  width: number
-  height: number
-}
+import { checkJavaAvailable, dumpSwf } from './ffdecService'
+import { extractImages, extractShapes } from './ffdecAssetExtractor'
+import { parseSwfDump } from './ffdecTimelineParser'
 
 // ── Registration ───────────────────────────────────────────────────────────
 
@@ -62,55 +49,117 @@ export function registerSwfHandlers(): void {
 // ── Main Import ────────────────────────────────────────────────────────────
 
 /**
- * Import SWF by converting it to XFL via JPEXS FFDec, then using
- * the existing FLA/XFL importer to parse it.
- *
- * This gives us full access to timeline, shapes, text, symbols —
- * all through JPEXS's accurate SWF decompilation — reusing the
- * existing import pipeline.
+ * Import SWF by extracting assets and parsing timeline directly via JPEXS FFDec.
  */
 async function importSwfViaFfdec(
   swfPath: string,
   projectName: string
 ): Promise<object | null> {
-  // Create a temp directory for the XFL export
-  const tempDir = join(
-    app.getPath('temp'),
-    'animate-swf-import-' + nanoid(8)
-  )
-  mkdirSync(tempDir, { recursive: true })
+  // Create assets directory for this project
+  const projectId = nanoid()
+  const userDataPath = app.getPath('userData')
+  const assetsDir = join(userDataPath, 'projects', projectId, '.project_assets')
+  mkdirSync(assetsDir, { recursive: true })
 
-  console.log('[SWF] Exporting SWF → XFL via JPEXS:', swfPath)
+  console.log('[SWF] Importing via FFDec:', swfPath)
 
-  // Step 1: Export SWF to XFL format via JPEXS
-  await exportAssets(swfPath, tempDir, 'xfl' as any)
+  // Step 1: Extract assets (images + shapes) in parallel with dump
+  const [images, shapes, xmlDump] = await Promise.all([
+    extractImages(swfPath, assetsDir),
+    extractShapes(swfPath, assetsDir),
+    dumpSwf(swfPath)
+  ])
 
-  // Step 2: Find the XFL output folder (JPEXS creates a subfolder named after the SWF)
-  const { readdirSync, statSync } = await import('fs')
-  const entries = readdirSync(tempDir)
-  let xflDir = tempDir
-  for (const entry of entries) {
-    const full = join(tempDir, entry)
-    if (statSync(full).isDirectory()) {
-      // Check if this directory contains DOMDocument.xml
-      const domDoc = join(full, 'DOMDocument.xml')
-      const { existsSync } = await import('fs')
-      if (existsSync(domDoc)) {
-        xflDir = full
-        break
+  console.log(`[SWF] Extracted ${images.length} images, ${shapes.length} shapes`)
+
+  // Step 2: Parse timeline from XML dump
+  const { header, layers } = parseSwfDump(xmlDump, images, shapes)
+
+  // Step 3: Convert shape layers into symbols
+  const symbols: Array<{
+    id: string
+    name: string
+    libraryItemName: string
+    fps: number
+    durationFrames: number
+    layers: typeof layers
+  }> = []
+
+  const processedLayers = layers.map((layer) => {
+    if (layer.type !== 'shape' || !layer.shapeData) return layer
+
+    // Create a SymbolDef wrapping this shape
+    const symbolId = nanoid()
+    const symbolName = layer.name || 'Shape Symbol'
+    // Inner shape layer sits at origin — the outer symbol layer handles positioning
+    const innerTracks = layer.tracks.map((t: any) => {
+      if (t.property === 'x' || t.property === 'y') {
+        return { ...t, keyframes: t.keyframes.map((kf: any) => ({ ...kf, value: 0 })) }
       }
+      if (t.property === 'scaleX' || t.property === 'scaleY') {
+        return { ...t, keyframes: t.keyframes.map((kf: any) => ({ ...kf, value: 1 })) }
+      }
+      if (t.property === 'rotation') {
+        return { ...t, keyframes: t.keyframes.map((kf: any) => ({ ...kf, value: 0 })) }
+      }
+      if (t.property === 'opacity') {
+        return { ...t, keyframes: t.keyframes.map((kf: any) => ({ ...kf, value: 1 })) }
+      }
+      return t
+    })
+
+    symbols.push({
+      id: symbolId,
+      name: symbolName,
+      libraryItemName: symbolName,
+      fps: header.fps || 24,
+      durationFrames: header.frameCount || 1,
+      layers: [
+        {
+          ...layer,
+          id: nanoid(),
+          name: 'Shape',
+          order: 0,
+          startFrame: 0,
+          endFrame: (header.frameCount || 1) - 1,
+          tracks: innerTracks
+        }
+      ]
+    })
+
+    // Replace with a symbol layer instance
+    return {
+      id: layer.id,
+      name: symbolName,
+      type: 'symbol' as const,
+      symbolId,
+      visible: layer.visible,
+      locked: layer.locked,
+      order: layer.order,
+      startFrame: layer.startFrame,
+      endFrame: layer.endFrame,
+      tracks: layer.tracks
     }
-  }
+  })
 
-  console.log('[SWF] XFL output directory:', xflDir)
-
-  // Step 3: Use existing FLA/XFL importer to parse the XFL
-  const source = new FolderFileSource(xflDir)
-  const project = await importFromSource(source, projectName)
-
-  if (!project) {
-    console.error('[SWF] XFL import returned null')
-    return null
+  const project = {
+    id: projectId,
+    name: projectName,
+    width: header.width || 550,
+    height: header.height || 400,
+    fps: header.fps || 24,
+    durationFrames: header.frameCount || 1,
+    backgroundColor: header.backgroundColor || '#FFFFFF',
+    assets: images.map((img) => ({
+      id: img.id,
+      type: 'image' as const,
+      name: img.name,
+      localBundlePath: img.localBundlePath,
+      width: img.width,
+      height: img.height
+    })),
+    layers: processedLayers,
+    symbols
   }
 
   console.log(
@@ -119,31 +168,4 @@ async function importSwfViaFfdec(
   )
 
   return project
-}
-
-// ── Exported for merged import handler ─────────────────────────────────────
-
-/**
- * Extract only bitmap assets from an SWF using JPEXS.
- * Used by mergedImportHandler to replace FLA bitmaps with SWF bitmaps.
- */
-export async function extractSwfBitmaps(
-  swfPath: string,
-  assetsDir: string
-): Promise<AssetInfo[]> {
-  const javaOk = await checkJavaAvailable()
-  if (!javaOk) {
-    console.warn('[SWF] Java not available for bitmap extraction')
-    return []
-  }
-
-  const { extractImages } = await import('./ffdecAssetExtractor')
-  const images = await extractImages(swfPath, assetsDir)
-  return images.map((img) => ({
-    id: img.id,
-    name: img.name,
-    localBundlePath: img.localBundlePath,
-    width: img.width,
-    height: img.height
-  }))
 }

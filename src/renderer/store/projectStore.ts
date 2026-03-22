@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Project, Layer, Asset, PropertyTrack, TrackProperty, EasingType, Keyframe } from '../types/project'
+import type { Project, Layer, Asset, PropertyTrack, TrackProperty, EasingType, Keyframe, SymbolDef } from '../types/project'
 import { CommandHistory } from './commands/Command'
 
 interface ProjectState {
@@ -21,6 +21,10 @@ interface ProjectState {
   // Keyframe operations (direct - called by commands)
   setKeyframeDirect: (layerId: string, property: TrackProperty, frame: number, value: number, easing: EasingType) => void
   removeKeyframeDirect: (layerId: string, property: TrackProperty, frame: number) => void
+
+  // Symbol operations (direct - called by commands)
+  addSymbolDirect: (symbol: SymbolDef) => void
+  removeSymbolDirect: (symbolId: string) => void
 
   // Computed helpers
   getLayer: (layerId: string) => Layer | undefined
@@ -133,6 +137,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return { ...layer, tracks }
       })
       return { project: { ...state.project, layers } }
+    })
+  },
+
+  addSymbolDirect: (symbol) => {
+    set((state) => {
+      if (!state.project) return state
+      const symbols = [...(state.project.symbols || []), symbol]
+      return { project: { ...state.project, symbols } }
+    })
+  },
+
+  removeSymbolDirect: (symbolId) => {
+    set((state) => {
+      if (!state.project) return state
+      return {
+        project: {
+          ...state.project,
+          symbols: (state.project.symbols || []).filter((s) => s.id !== symbolId)
+        }
+      }
     })
   },
 

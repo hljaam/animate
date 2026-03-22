@@ -218,6 +218,9 @@ export class StageRenderer {
     for (const gfx of this.shapeCache.values()) {
       gfx.eventMode = mode
     }
+    for (const container of this.layerContainers.values()) {
+      if (container.cursor === 'pointer') container.eventMode = mode
+    }
 
     // Draw selection overlay
     this.drawSelectionOverlay()
@@ -345,12 +348,14 @@ export class StageRenderer {
         if (path.bitmapFillAssetId) bitmapFillAssetIds.add(path.bitmapFillAssetId)
       }
 
-      // Load bitmap fill textures then draw
-      // Two-pass rendering: fills first, then strokes on top (matches Flash rendering order)
+      // Single-pass rendering: draw each path's fill and stroke in SVG document
+      // order. JPEXS SVG interleaves fills and strokes, so separating them into
+      // two passes breaks the intended visual stacking.
       const drawPaths = (): void => {
-        // Pass 1: Draw all fills
         for (const path of shapeData.paths) {
           const pts = path.points
+
+          // Draw fill
           if ((path.fillColor || path.bitmapFillAssetId) && pts.length >= 3) {
             const gpath = new PIXI.GraphicsPath()
             gpath.moveTo(pts[0].x - shapeData.originX, pts[0].y - shapeData.originY)
@@ -369,7 +374,7 @@ export class StageRenderer {
             } else {
               gfx!.fill(path.fillColor!)
             }
-            // Draw sub-paths as holes using PixiJS cut()
+            // Cut holes (sub-paths marked as cutouts)
             if (path.subPaths) {
               for (const sub of path.subPaths) {
                 if (sub.length < 3) continue
@@ -382,10 +387,8 @@ export class StageRenderer {
               }
             }
           }
-        }
-        // Pass 2: Draw all strokes on top of fills
-        for (const path of shapeData.paths) {
-          const pts = path.points
+
+          // Draw stroke
           if (path.strokeColor && pts.length >= 2) {
             gfx!.moveTo(pts[0].x - shapeData.originX, pts[0].y - shapeData.originY)
             for (let i = 1; i < pts.length; i++) {
@@ -424,6 +427,7 @@ export class StageRenderer {
         drawPaths()
       }
 
+      ;(gfx as any)._shapeDataRef = layer.shapeData
       this.shapeCache.set(layer.id, gfx)
 
       container = new PIXI.Container()
@@ -431,6 +435,13 @@ export class StageRenderer {
       this.layerContainers.set(layer.id, container)
       this.worldContainer.addChild(container)
     } else {
+      // Invalidate cache if shapeData changed (e.g. user edited fill/stroke)
+      if ((gfx as any)._shapeDataRef !== layer.shapeData) {
+        this.shapeCache.delete(layer.id)
+        this.layerContainers.get(layer.id)?.destroy({ children: true })
+        this.layerContainers.delete(layer.id)
+        return this.renderShapeLayer(layer, props)
+      }
       container = this.layerContainers.get(layer.id)!
     }
 
@@ -457,6 +468,12 @@ export class StageRenderer {
     let container = this.layerContainers.get(layer.id)
     if (!container) {
       container = new PIXI.Container()
+      container.eventMode = 'static'
+      container.cursor = 'pointer'
+      container.on('pointerdown', (e) => this.handlePointerDown(e, layer.id))
+      container.on('pointermove', (e) => this.handlePointerMove(e))
+      container.on('pointerup', () => this.handlePointerUp(layer.id))
+      container.on('pointerupoutside', () => this.handlePointerUp(layer.id))
       this.layerContainers.set(layer.id, container)
       this.worldContainer.addChild(container)
     }
@@ -494,6 +511,22 @@ export class StageRenderer {
           this.drawShapeGraphics(gfx, symLayer.shapeData, symLayer)
           this.shapeCache.set(cacheKey, gfx)
           container.addChild(gfx)
+
+          // Load bitmap fill textures if needed
+          for (const path of symLayer.shapeData.paths) {
+            if (path.bitmapFillAssetId && !this.textureCache.has(path.bitmapFillAssetId)) {
+              const asset = project.assets.find((a) => a.id === path.bitmapFillAssetId)
+              if (asset) {
+                this.loadTextureViaImg(asset.localBundlePath).then((tex) => {
+                  this.textureCache.set(path.bitmapFillAssetId!, tex)
+                  // Redraw with loaded texture
+                  gfx!.clear()
+                  this.drawShapeGraphics(gfx!, symLayer.shapeData!, symLayer)
+                  this.dirty = true
+                })
+              }
+            }
+          }
         }
         gfx.visible = true
         gfx.x = symProps.x - symLayer.shapeData.originX
@@ -532,11 +565,14 @@ export class StageRenderer {
 
   // ── Shape Drawing Helper ──────────────────────────────────────────────
 
-  private drawShapeGraphics(gfx: PIXI.Graphics, shapeData: ShapeData, layer: Layer): void {
-    // Two-pass rendering: fills first, then strokes on top (matches Flash rendering order)
-    // Pass 1: Draw all fills
+  private drawShapeGraphics(gfx: PIXI.Graphics, shapeData: ShapeData, _layer: Layer): void {
+    // Single-pass rendering: draw each path's fill and stroke in SVG document
+    // order. JPEXS SVG interleaves fills and strokes, so separating them into
+    // two passes breaks the intended visual stacking.
     for (const path of shapeData.paths) {
       const pts = path.points
+
+      // Draw fill
       if ((path.fillColor || path.bitmapFillAssetId) && pts.length >= 3) {
         const gpath = new PIXI.GraphicsPath()
         gpath.moveTo(pts[0].x - shapeData.originX, pts[0].y - shapeData.originY)
@@ -548,7 +584,7 @@ export class StageRenderer {
         if (path.bitmapFillAssetId) {
           const tex = this.textureCache.get(path.bitmapFillAssetId)
           if (tex) gfx.fill({ texture: tex })
-          else gfx.fill('#888888')
+          else gfx.fill('#888888') // placeholder until texture loads
         } else {
           gfx.fill(path.fillColor!)
         }
@@ -565,10 +601,8 @@ export class StageRenderer {
           }
         }
       }
-    }
-    // Pass 2: Draw all strokes on top of fills
-    for (const path of shapeData.paths) {
-      const pts = path.points
+
+      // Draw stroke
       if (path.strokeColor && pts.length >= 2) {
         gfx.moveTo(pts[0].x - shapeData.originX, pts[0].y - shapeData.originY)
         for (let i = 1; i < pts.length; i++) {
