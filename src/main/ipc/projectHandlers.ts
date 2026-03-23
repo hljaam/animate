@@ -27,4 +27,20 @@ export function registerProjectHandlers(): void {
     const raw = readFileSync(result.filePaths[0], 'utf-8')
     return { filePath: result.filePaths[0], data: raw }
   })
+
+  ipcMain.handle('open-script', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Open Script',
+      filters: [
+        { name: 'Script Files', extensions: ['txt', 'md'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+
+    if (result.canceled || result.filePaths.length === 0) return null
+
+    const content = readFileSync(result.filePaths[0], 'utf-8')
+    return { filePath: result.filePaths[0], content }
+  })
 }

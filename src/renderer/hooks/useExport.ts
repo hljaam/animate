@@ -35,7 +35,7 @@ export function useExport() {
       for (let frame = 0; frame < project.durationFrames; frame++) {
         setCurrentFrame(frame)
 
-        exportRenderer.setScene(project, frame, null)
+        exportRenderer.setScene(project, frame, [])
         // Force immediate render by calling app.renderer.render
         exportRenderer.app.renderer.render(exportRenderer.app.stage)
 

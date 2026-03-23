@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { parseCommand } from '../../console/commandParser'
-import { executeCommand } from '../../console/commandExecutor'
+import { executeCommand, runBatchScript } from '../../console/commandExecutor'
 import { useExport } from '../../hooks/useExport'
 
 const COMMAND_TEMPLATES = [
@@ -18,7 +18,8 @@ const COMMAND_TEMPLATES = [
   'delete <target>',
   'hide <target>',
   'lock <target>',
-  'export mp4'
+  'export mp4',
+  'run'
 ]
 
 export default function CommandConsole(): React.ReactElement {
@@ -109,10 +110,56 @@ export default function CommandConsole(): React.ReactElement {
     }
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>): void {
+    const pasted = e.clipboardData.getData('text')
+    if (!pasted.includes('\n')) return // single line — let default handle it
+
+    e.preventDefault()
+    const lines = pasted.split('\n')
+    let lastError: string | null = null
+
+    for (const raw of lines) {
+      const trimmed = raw.trim()
+      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue
+
+      const parseResult = parseCommand(trimmed)
+      if ('error' in parseResult) {
+        lastError = `Line "${trimmed}": ${parseResult.error}`
+        break
+      }
+
+      const execResult = executeCommand(parseResult.ok, exportProject)
+      if ('error' in execResult) {
+        lastError = `Line "${trimmed}": ${execResult.error}`
+        break
+      }
+    }
+
+    if (lastError) {
+      setError(lastError)
+    } else {
+      setHistory((h) => [pasted.split('\n')[0], ...h].slice(0, 50))
+      dismiss()
+    }
+  }
+
   function submitCommand(text: string): void {
     const parseResult = parseCommand(text)
     if ('error' in parseResult) {
       setError(parseResult.error)
+      return
+    }
+
+    // Handle async "run" command
+    if (parseResult.ok.type === 'run') {
+      runBatchScript(exportProject).then((result) => {
+        if ('error' in result) {
+          setError(result.error)
+        } else {
+          setHistory((h) => [text, ...h].slice(0, 50))
+          dismiss()
+        }
+      })
       return
     }
 
@@ -145,6 +192,7 @@ export default function CommandConsole(): React.ReactElement {
           value={input}
           onChange={(e) => updateInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder="Type a command…"
           spellCheck={false}
           style={styles.input}

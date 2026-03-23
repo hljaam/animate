@@ -2,12 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 export interface ElectronAPI {
   importAsset: (projectId: string) => Promise<AssetResult[] | null>
-  importFla: () => Promise<FlaProjectResult | null>
-  importXfl: () => Promise<FlaProjectResult | null>
-  importSwf: () => Promise<FlaProjectResult | null>
-  importAnimate: () => Promise<FlaProjectResult | null>
+  importSwf: () => Promise<SwfProjectResult | null>
   saveProject: (projectJson: string) => Promise<{ success: boolean; filePath?: string }>
   openProject: () => Promise<{ filePath: string; data: string } | null>
+  openScript: () => Promise<{ filePath: string; content: string } | null>
+  importPsd: () => Promise<any | null>
   exportStart: (payload: ExportStartPayload) => Promise<{ success: boolean }>
   exportFrame: (payload: ExportFramePayload) => Promise<{ success: boolean }>
   exportFinalize: (payload: { projectId: string; totalFrames: number }) => Promise<ExportFinalizeResult>
@@ -43,21 +42,28 @@ interface ExportFinalizeResult {
   error?: string
 }
 
-interface FlaShapePath {
+type SwfShapeSegment =
+  | { type: 'move'; x: number; y: number }
+  | { type: 'line'; x: number; y: number }
+  | { type: 'cubic'; cx1: number; cy1: number; cx2: number; cy2: number; x: number; y: number }
+  | { type: 'quadratic'; cx: number; cy: number; x: number; y: number }
+  | { type: 'close' }
+
+interface SwfShapePath {
   fillColor?: string
   strokeColor?: string
   strokeWidth?: number
-  bitmapFillAssetId?: string
-  points: Array<{ x: number; y: number }>
+  segments: SwfShapeSegment[]
+  subPaths?: SwfShapeSegment[][]
 }
 
-interface FlaShapeData {
-  paths: FlaShapePath[]
+interface SwfShapeData {
+  paths: SwfShapePath[]
   originX: number
   originY: number
 }
 
-interface FlaProjectResult {
+interface SwfProjectResult {
   id: string
   name: string
   width: number
@@ -69,9 +75,9 @@ interface FlaProjectResult {
   layers: Array<{
     id: string
     name: string
-    type: 'image' | 'shape'
+    type: 'image' | 'shape' | 'text'
     assetId?: string
-    shapeData?: FlaShapeData
+    shapeData?: SwfShapeData
     visible: boolean
     locked: boolean
     order: number
@@ -86,12 +92,11 @@ interface FlaProjectResult {
 
 const api: ElectronAPI = {
   importAsset: (projectId) => ipcRenderer.invoke('import-asset', projectId),
-  importFla: () => ipcRenderer.invoke('import-fla'),
-  importXfl: () => ipcRenderer.invoke('import-xfl'),
   importSwf: () => ipcRenderer.invoke('import-swf'),
-  importAnimate: () => ipcRenderer.invoke('import-animate'),
   saveProject: (projectJson) => ipcRenderer.invoke('save-project', projectJson),
   openProject: () => ipcRenderer.invoke('open-project'),
+  openScript: () => ipcRenderer.invoke('open-script'),
+  importPsd: () => ipcRenderer.invoke('import-psd'),
   exportStart: (payload) => ipcRenderer.invoke('export-start', payload),
   exportFrame: (payload) => ipcRenderer.invoke('export-frame', payload),
   exportFinalize: (payload) => ipcRenderer.invoke('export-finalize', payload),

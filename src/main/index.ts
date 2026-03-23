@@ -2,6 +2,17 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { registerAllHandlers } from './ipc/index'
 
+// Prevent EPIPE errors on stdout/stderr from crashing the app.
+// Electron's main process may have a broken pipe when stdout is not connected.
+function ignoreEpipe(stream: NodeJS.WriteStream): void {
+  stream.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') return
+    throw err
+  })
+}
+ignoreEpipe(process.stdout)
+ignoreEpipe(process.stderr)
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1440,

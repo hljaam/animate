@@ -16,6 +16,13 @@ export interface ImageAssetInfo {
   height: number
 }
 
+type ShapeSegment =
+  | { type: 'move'; x: number; y: number }
+  | { type: 'line'; x: number; y: number }
+  | { type: 'cubic'; cx1: number; cy1: number; cx2: number; cy2: number; x: number; y: number }
+  | { type: 'quadratic'; cx: number; cy: number; x: number; y: number }
+  | { type: 'close' }
+
 export interface ShapeAssetInfo {
   characterId: number
   shapeData: {
@@ -23,7 +30,9 @@ export interface ShapeAssetInfo {
       fillColor?: string
       strokeColor?: string
       strokeWidth?: number
-      points: Array<{ x: number; y: number }>
+      hasBitmapFill?: boolean
+      segments: ShapeSegment[]
+      subPaths?: ShapeSegment[][]
     }>
     originX: number
     originY: number

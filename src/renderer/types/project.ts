@@ -1,5 +1,8 @@
 export type EasingType = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'step'
 
+/** Default easing for new keyframes — 'step' = hold (Adobe Animate model) */
+export const DEFAULT_EASING: EasingType = 'step'
+
 export type TrackProperty = 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity'
 
 export interface Keyframe {
@@ -20,14 +23,21 @@ export interface TextData {
   size: number
 }
 
+export type ShapeSegment =
+  | { type: 'move'; x: number; y: number }
+  | { type: 'line'; x: number; y: number }
+  | { type: 'cubic'; cx1: number; cy1: number; cx2: number; cy2: number; x: number; y: number }
+  | { type: 'quadratic'; cx: number; cy: number; x: number; y: number }
+  | { type: 'close' }
+
 export interface ShapePath {
   fillColor?: string
   strokeColor?: string
   strokeWidth?: number
   bitmapFillAssetId?: string
-  points: Array<{ x: number; y: number }>
+  segments: ShapeSegment[]
   /** Additional sub-paths for the same fill — used for even-odd holes (ring/donut shapes). */
-  subPaths?: Array<Array<{ x: number; y: number }>>
+  subPaths?: ShapeSegment[][]
 }
 
 export interface ShapeData {
@@ -65,6 +75,17 @@ export interface AssetSwap {
 export interface ShapeKeyframe {
   frame: number
   shapeData: ShapeData
+}
+
+// ── Shape Object Definition (reusable shape objects) ──────────────────────
+
+export interface ShapeObjectDef {
+  id: string
+  name: string
+  paths: ShapePath[]
+  originX: number
+  originY: number
+  layers?: Layer[]
 }
 
 // ── Symbol Definition (nested timelines) ──────────────────────────────────
@@ -118,6 +139,16 @@ export interface Layer {
 
   // Nested symbol timeline
   symbolId?: string
+
+  // Shape object reference (for object layers)
+  shapeObjectId?: string
+
+  // Outline mode (show layer as colored outline)
+  outlineMode?: boolean
+  outlineColor?: string
+
+  // Semi-transparent view mode (Shift+click eye)
+  semiTransparent?: boolean
 }
 
 export interface Asset {
@@ -143,6 +174,8 @@ export interface Project {
   assets: Asset[]
   layers: Layer[]
   symbols?: SymbolDef[]
+  shapeObjects?: ShapeObjectDef[]
+  frameLabels?: Record<number, string>
 }
 
 // Default property values for new layers

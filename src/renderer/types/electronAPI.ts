@@ -3,6 +3,8 @@ export interface ElectronAPI {
   importSwf: () => Promise<SwfProjectResult | null>
   saveProject: (projectJson: string) => Promise<{ success: boolean; filePath?: string }>
   openProject: () => Promise<{ filePath: string; data: string } | null>
+  openScript: () => Promise<{ filePath: string; content: string } | null>
+  importPsd: () => Promise<any | null>
   exportStart: (payload: ExportStartPayload) => Promise<{ success: boolean }>
   exportFrame: (payload: ExportFramePayload) => Promise<{ success: boolean }>
   exportFinalize: (payload: { projectId: string; totalFrames: number }) => Promise<ExportFinalizeResult>
@@ -38,13 +40,20 @@ interface ExportFinalizeResult {
   error?: string
 }
 
+type SwfShapeSegment =
+  | { type: 'move'; x: number; y: number }
+  | { type: 'line'; x: number; y: number }
+  | { type: 'cubic'; cx1: number; cy1: number; cx2: number; cy2: number; x: number; y: number }
+  | { type: 'quadratic'; cx: number; cy: number; x: number; y: number }
+  | { type: 'close' }
+
 interface SwfShapePath {
   fillColor?: string
   strokeColor?: string
   strokeWidth?: number
   bitmapFillAssetId?: string
-  points: Array<{ x: number; y: number }>
-  subPaths?: Array<Array<{ x: number; y: number }>>
+  segments: SwfShapeSegment[]
+  subPaths?: SwfShapeSegment[][]
 }
 
 interface SwfShapeData {

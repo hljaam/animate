@@ -1,0 +1,232 @@
+# Product Concept
+
+## Product Name Idea
+A working definition could be:
+“A desktop 2D motion editor for animating imported images and text on a frame timeline.”
+
+## Target User
+Best first target:
+- creators making simple motion videos
+- marketers making promo clips
+- beginner animators
+- meme/video creators
+- people who want “Photoshop layers + keyframes + MP4 export”
+
+## Core Use Case
+A user should be able to:
+1. create a new project (selecting from social media presets or custom sizes)
+2. import several PNG/JPG images
+3. add basic text overlays
+4. place them on the stage (large images auto-scale to fit)
+5. animate position / scale / rotation / opacity over time
+6. preview the animation smoothly
+7. export as MP4
+
+That is the core product.
+
+---
+
+# Product Scope
+
+## In Scope for V1
+- stage/canvas
+- layers (image and basic text)
+- timeline
+- playhead
+- keyframes (unified UI track, decoupled data model)
+- basic transform tools
+- properties panel
+- asset/library panel (with project bundling)
+- document settings
+- playback controls
+- export settings
+- undo/redo system (Command pattern)
+
+## Out of Scope for V1
+- drawing tools
+- pen/brush/vector editing
+- advanced symbol system
+- audio editing
+- multiple scenes
+- scripting
+- publish to multiple formats (GIF, MOV)
+- bone rigging
+- camera layer
+- complex easing graph editor
+- masks and blend modes
+
+---
+
+# Product Information Architecture
+
+## 1. Top Bar
+Contains project-level controls.
+### Contents
+- app logo / project name
+- File, Edit, View menus
+- Export button
+- Save status
+- undo / redo (crucial state management)
+- preview/export shortcut buttons
+
+## 2. Left Panel: Assets
+Manage imported images used in the project.
+### V1 Rules & Asset Handling
+- formats: PNG, JPG, JPEG, WEBP
+- **Project Bundling:** Upon import, the app silently copies assets into a hidden local project directory (e.g., `.project_assets` folder) so the project is entirely self-contained and paths don't break if the user moves their original downloads.
+
+## 3. Center Panel: Stage / Canvas
+This is the main working area.
+### Visual Behavior
+- selected image shows bounding box
+- anchor point displayed at center by default
+- **Fit/Fill Default:** On import, large images are automatically scaled proportionally to fit within the canvas limits.
+- hardware-accelerated rendering (WebGL via PixiJS) to ensure 60 FPS playback during real-time preview.
+
+## 4. Right Panel: Properties
+Edit selected object or document settings numerically.
+### Two Tabs
+#### A. Document
+Project-wide settings (canvas width/height, FPS, background color, duration).
+#### B. Selected Layer
+Layer/object settings (name, x, y, scale, rotation, opacity, visible, locked).
+*UI Detail:* Highlight the specific property (e.g., make the label blue) if the current frame has an active keyframe for that property. Click the diamond icon to add/update keyframes.
+
+## 5. Bottom Panel: Timeline
+Control timing and animate layers over frames.
+### Simplified Model for V1 UI
+- single row per layer
+- keyframes shown as diamonds
+- detailed property editing happens in the right panel
+- if playhead is on a diamond, highlight the active properties in the Properties panel.
+
+---
+
+# Core Feature Design
+
+## Feature 1: Project Creation
+### Defaults & Presets
+Include a dropdown with core presets for target users:
+- Landscape (16:9): 1920 × 1080 (YouTube)
+- Portrait (9:16): 1080 × 1920 (TikTok, Reels, Shorts)
+- Square (1:1): 1080 × 1080 (Instagram)
+- Custom
+
+## Feature 2: Image Import
+### System Behavior
+- silently copy to local project bundle
+- create a new layer
+- set initial position to stage center
+- auto-scale down if bounding box exceeds canvas
+- insert first keyframe at current frame if needed
+
+## Feature 3: Text Layers (Added to V1)
+Because marketers and meme creators rely entirely on text overlays, V1 includes a highly stripped-down text tool:
+- pick font (system fonts)
+- color
+- size
+- type text
+Text acts as a standard animatable layer.
+
+---
+
+# V1 Technical Product Model
+
+## Document Model
+type Project = {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  fps: number;
+  durationFrames: number;
+  backgroundColor: string;
+  assets: Asset[];
+  layers: Layer[];
+};
+
+## Asset Model
+type Asset = {
+  id: string;
+  type: "image";
+  name: string;
+  localBundlePath: string; // References the internal project copy, not the user's OS path
+  width: number;
+  height: number;
+};
+
+## Layer Model
+type Layer = {
+  id: string;
+  name: string;
+  type: "image" | "text";
+  assetId?: string; // If image
+  textData?: { text: string; font: string; color: string; size: number }; // If text
+  visible: boolean;
+  locked: boolean;
+  order: number;
+  startFrame: number;
+  endFrame: number;
+  tracks: PropertyTrack[]; // Decoupled keyframes
+};
+
+## Decoupled Keyframe Model (Crucial for V1.1 expansion)
+type PropertyTrack = {
+  property: "x" | "y" | "scaleX" | "scaleY" | "rotation" | "opacity";
+  keyframes: Keyframe[];
+};
+
+type Keyframe = {
+  frame: number;
+  value: number;
+  easing: "linear" | "easeIn" | "easeOut" | "easeInOut";
+};
+
+---
+
+# Feature Roadmap
+
+## MVP (V1)
+- new project (with aspect ratio presets)
+- save/open project (bundled assets)
+- import image (auto-scale to fit)
+- basic text tool
+- stage with select/move/scale/rotate
+- layers & timeline (unified UI row, decoupled data)
+- keyframes & playback
+- Redux/Zustand undo/redo architecture
+- MP4 export
+
+## V1.1
+- easing presets
+- duplicate layer
+- better timeline zoom
+- snap to frame
+- keyboard shortcuts
+- delete keyframe
+
+## V1.2
+- image cropping
+- grouping
+- copy/paste keyframes
+- playback loop region
+- expandable property rows in timeline
+
+---
+
+# Best Stack for this Design
+
+- **App Framework:** Electron
+- **UI & State:** React + TypeScript + Zustand (or Redux) for Command-pattern Undo/Redo
+- **Rendering:** PixiJS (WebGL with Canvas 2D fallback for 60fps performance)
+- **Export:** FFmpeg
+- **File System:** JSON project format + hidden `.asset` folder for bundling
+
+---
+
+# Success Metric
+A user can create this in under 5 minutes:
+1. pick a 9:16 Portrait preset
+2. import 2 images and add 1 text layer
+3. animate one image moving and the text fading in
+4. export a working MP4

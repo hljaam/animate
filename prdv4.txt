@@ -1,0 +1,135 @@
+# Canvas Pan Tool (Adobe Animate–Style) – PRD
+
+**Executive Summary:** A robust pan/hand tool lets users navigate a zoomed canvas by dragging the view. In Adobe Animate, the Hand tool (or holding Space) moves the Stage view【33†L297-L300】, and common editors like Photoshop/Figma use similar interactions (spacebar to pan, two-finger pan on touchpads, etc.). We propose replicating Animate’s behavior: a dedicated Hand tool (icon or shortcut H), a temporary “hold Space to pan” mode, and support for multi-input (mouse drag, touch gestures, stylus). The tool must integrate with zoom levels, optional inertia (flick) panning, and respect constraints (stage boundaries vs. pasteboard). Interaction logic will follow clear state transitions: Idle → (activate via key/tool) → Pressed → Dragging → (release, possibly inertia) → Idle. Coordinate transforms map screen (pointer) positions to canvas world coordinates via the current pan/zoom/rotation transform. Performance-critical implementation (e.g. using requestAnimationFrame and GPU transforms) ensures smooth motion. Undo/redo will treat pan as a view change (not normally undoable), but camera movements (if any) can be recordable. We define precise event sequences and a state machine; edge cases (fast flicks, large canvases, fractional pixels, high-DPI) are addressed. Below are key features, detailed logic, a state/interaction table, and a mermaid state diagram.
+
+## Key Features
+
+- **Activation Modes:** Hand tool button or `H` key selects pan mode; holding **Spacebar** temporarily invokes the hand tool【33†L297-L300】. (E.g. while another tool is active, Space toggles to pan.)  
+- **Cursor States:** Default cursor; over canvas with pan tool or Space, show an open-hand or "grabbing" icon (closed hand) during drag to indicate panning.  
+- **Panning Mechanics:** On drag, translate the view by the pointer delta. The view offset (`panX, panY`) updates as `(panX += Δx, panY += Δy)`, where Δx/y = change in pointer position (screen space) divided by zoom (to convert to world space). In practice, map pointer movement directly to view translation: e.g. in an accelerated UI, use `ctx.translate(Δx, Δy)` or a CSS `translate3d` transform for GPU performance.  
+- **Zoom Interaction:** Panning should work at any zoom level. E.g. dragging a fixed screen distance always moves the same canvas distance relative to current zoom. Zoom gestures (pinch/touchpad scroll) and mouse-wheel with modifiers (`Ctrl/Cmd`+wheel for zoom) coexist: if the user zooms mid-pan, update transforms accordingly. (See Adobe’s zoom tool behavior【3†L247-L254】 for reference.)  
+- **Inertia/Momentum (Flick Pan):** Optionally support fling scrolling: when the user releases the drag with velocity, continue panning with deceleration. Many graphics apps (e.g. Photoshop) have an “Enable Flick Panning” preference【41†L117-L120】; Illustrator recently added flick-pan by default【32†L60-L64】. We should support a similar toggle. If enabled, on mouse/touch release compute velocity and animate the view to gradually stop (e.g. apply exponential or friction deceleration on requestAnimationFrame). Space or new pointer press interrupts inertia (stopping the movement).  
+- **Constraints & Snapping:** By default, allow free (potentially infinite) pan – consistent with Animate’s infinite pasteboard view【33†L291-L300】. Optionally clamp the view so the stage bounds are not left visible (if “clip content outside stage” is enabled). Snapping: if guides or grid snapping are active, one could snap the view to origin or guided lines (though Animate does not snap panning by default). Provide an optional “snap to center or edges” feature if desired (but not native to Animate).  
+- **Multi-Input Support:** 
+  - **Mouse:** Left-click drag to pan. Optionally, allow right-click+drag or middle-button pan if configured (e.g. Illustrator can pan with middle-click). Scroll wheel drags the view vertically by default; Shift+scroll pans horizontally (as in Figma/Illustrator)【35†L122-L127】. 
+  - **Touch/Trackpad:** Two-finger drag on a touchpad pans the view【35†L131-L133】. On touchscreens, two-finger drag (pan gesture) moves the canvas; pinch-to-zoom changes scale.  
+  - **Stylus/Pen:** Act like mouse: pen down + drag pans. Pressure or button modifiers (if any) are ignored for panning (unless one designates a button to trigger pan).  
+  - **Keyboard:** Arrow keys can optionally pan by a few pixels per press for accessibility. Space+Drag operates as hand tool (like Photoshop/Figma)【35†L134-L137】. The H key (hand tool shortcut) or toolbar icon toggles pan mode. Ctrl/Cmd key modifiers might be used to lock pan to horizontal/vertical only (e.g. hold Shift to constrain, though not standard in Animate).  
+
+- **Coordinate Transforms:** Maintain internal view transforms: keep variables for translation (pan) and scale (zoom), and rotation if Stage rotation is active. Screen coordinates (pointer events) convert to canvas/world coordinates via inverse transform:  
+  ```
+  worldX = (screenX - panX)/zoom * cos(−rot) - (screenY - panY)/zoom * sin(−rot)
+  worldY = (screenX - panX)/zoom * sin(−rot) + (screenY - panY)/zoom * cos(−rot)
+  ```  
+  where `rot` is the stage rotation angle (from Animate’s Rotate Stage tool【31†L303-L311】). Conversely, world→screen uses rotate then scale then translate. All pan calculations should use these transforms so panning works correctly when the stage is rotated or scaled.  
+
+- **Nested/Zoomed Layers & Rotated Canvas:** If using a camera or nested containers, treat panning as adjusting the top-level view. For a rotated view (Animate’s stage rotation), pan should move perpendicular to the rotated axes. This means interpreting pointer deltas in the rotated coordinate system. For example, if stage is rotated by θ, then horizontal mouse movement actually shifts the view along the rotated X-axis. Implement this by rotating the delta vector by –θ before updating pan.  
+
+- **Performance Considerations:**  
+  - Use `requestAnimationFrame` for smooth updates during pan/inertia. Do not handle every pointermove with synchronous layout; ideally apply transforms in the rendering loop.  
+  - Prefer GPU-accelerated transforms (`translate3d` or canvas translate) rather than redrawing all content per pixel when possible.  
+  - If pointer events fire extremely rapidly, consider throttling or debouncing (e.g. only update on animation frames).  
+  - For very large canvases, ensure we do not overflow coordinate precision – use double precision for world coords and consider tiling or virtualization if rendering heavy content.  
+
+- **Accessibility & Undo/Redo:**  
+  - Support keyboard alternatives (arrow keys, spacebar) for users without pointer devices. Announce current view position for screen readers if needed (though typical drawing apps may not).  
+  - Pan by itself generally should *not* create an undoable state (it’s a viewport change, not a document edit). However, if a Camera object is used (Animate’s camera layer), then moving/animating the camera *should* be undoable. Make sure camera panning steps push undo history, whereas simple view panning does not.  
+
+- **Testing Criteria and Acceptance:**  
+  - **Basic Pan:** Click-drag in pan mode moves the canvas; releasing stops. No pan if click without drag. Verified for mouse and trackpad.  
+  - **Temporary Pan (Space):** While another tool is active, pressing/holding Space lets user pan; releasing returns to prior tool.  
+  - **Multi-Input:** Two-finger touchpad drag pans; Ctrl/Cmd+scroll zooms (with/without pan modifiers).  
+  - **Inertia:** If flicking (fast release) with momentum enabled, canvas continues moving briefly then stops. With momentum disabled, it stops immediately on release.  
+  - **Limits:** If “clip to stage” is on, view does not show beyond stage bounds (other content is clipped). Otherwise, pasteboard is visible.  
+  - **Snap/Guides:** If enabled, verify view aligns to snap rules (if implemented).  
+  - **Coordinate Accuracy:** Pointer events map correctly under various zoom levels and rotation. E.g., clicking at a screen point maps to correct world coordinate.  
+  - **Performance:** Pan stays smooth (e.g. ≥60fps) even on large canvas or high zoom.  
+  - **Undo/Redo:** Panning should not appear in undo stack (no diff or delta stored). If a Camera layer is moved, that change is undoable.  
+
+## Interaction States and Outcomes
+
+| State        | Input/Event                          | Cursor/Icon    | Outcome/Behavior                                             | Next State          |
+|--------------|--------------------------------------|----------------|-------------------------------------------------------------|---------------------|
+| **Idle**     | – No action –                        | Default cursor | View static. If Hand tool active (or Space pressed) change cursor to open-hand. | → ActivePan (on tool select or Space) |
+| **ActivePan** (ready) | *PointerDown* on canvas | Open-hand (ready)  | Record start position; no move yet.                          | → Dragging         |
+| **Dragging** | *PointerMove* (mouse/touch drag)     | “Grabbing” hand icon | Compute Δ = currentPos – lastPos, update pan offset and redraw. Update lastPos. | ↔ Dragging until release |
+| **Release**  | *PointerUp* after Dragging          | Grabbing → open-hand | On release, compute velocity = distance/duration. If above threshold and inertia enabled, start “Fling”; else stop. | → (Inertia if flick) or Idle (otherwise) |
+| **Inertia** (Fling) | (Animated) no input, or *PointerDown* interrupts | Grabbing (or default) | Continue to apply deceleration to pan offset each frame. Fade velocity over time. If velocity reaches ~0 or user interacts, stop. | → Idle             |
+
+Above table summarizes states. For example, in Idle state the tool is inactive; pressing Space or selecting Hand moves to *ActivePan*. On *PointerDown* we enter *Dragging*. On release, if momentum is triggered we go to *Inertia*, else back to Idle. 
+
+## Interaction State Machine
+
+```mermaid
+stateDiagram
+    [*] --> Idle
+    Idle --> ActivePan: on HandToolSelect or SpaceDown
+    ActivePan --> Dragging: on PointerDown
+    Dragging --> ActivePan: on PointerUp (no flick)
+    Dragging --> Inertia: on PointerUp (with flick)
+    ActivePan --> Idle: on SpaceUp or ToolDeselect
+    Inertia --> Idle: on InertiaEnd
+    Inertia --> Idle: on PointerDown (interrupt)
+```
+
+This state diagram shows transitions: selecting the hand tool or holding Space enters **ActivePan** (pan-ready). Mousedown begins **Dragging** (with the grabbing cursor). Mouseup without flick returns to Idle; with flick enters **Inertia** state (momentum scroll) until it decays or is cancelled by a new input.
+
+## Coordinate Transforms
+
+Internally, maintain a view transform (`panX, panY, zoom, rotation`). On each pointer event:
+
+1. **Screen → Canvas:**  
+   Convert screen coordinates `(sx,sy)` to world `(wx,wy)` for any content hit-testing or reference:  
+   ```
+   // If stage rotated by rot (radians):
+   dx = sx - panX; dy = sy - panY;
+   wx = (dx * cos(rot) + dy * sin(rot)) / zoom;
+   wy = (−dx * sin(rot) + dy * cos(rot)) / zoom;
+   ```  
+   (Or inverse, depending on convention.) This ensures panning and rotation are accounted for.  
+
+2. **Canvas → Screen (for rendering):**  
+   Apply rotation then scale then translation to world coordinates. For drawing:  
+   ``` 
+   ctx.setTransform(zoom*cos(rot), zoom*sin(rot),
+                    -zoom*sin(rot), zoom*cos(rot),
+                    panX, panY);
+   ```  
+   This matrix maps world→screen so that simple world drawing code works under pan/zoom/rotate.  
+
+All panning is implemented by updating `panX`/`panY`: e.g. on drag, add the drag offset (already in screen space) to these. If the stage is rotated, the drag delta should first be rotated into world axes as above.
+
+## Edge Cases
+
+- **Fast Flicks:** If the user “flings” the canvas by releasing with high speed, the velocity may be large. We clamp the maximum speed or friction to avoid excessive overshoot. Apply a deceleration factor so that the view stops smoothly. User should be able to interrupt inertia by clicking.  
+- **Very Large Canvases:** For extremely large or infinite canvases, panning offsets may grow large. Use 64-bit floats or integers to avoid precision loss. Consider culling offscreen content to maintain performance.  
+- **Fractional Pixels:** Because of zoom, view offsets may be non-integers. Render content at high quality (e.g. use canvas scaling or subpixel anti-aliasing) to avoid jitter. Pixel snapping might be applied optionally if “snap to pixel grid” is on (Animate has a pixel grid at high zoom【24†L226-L229】, though that’s for drawing, not panning).  
+- **High-DPI Displays:** Account for `devicePixelRatio`. Internal pan units can be in CSS pixels; scale appropriately for rendering. Ensure the cursor moves match actual screen pixels.  
+
+## Performance
+
+- **Event Handling:** Use `pointerdown/pointermove/pointerup` (or `touch`/`mouse` events) but throttle `pointermove` via `requestAnimationFrame`. Do not call expensive layout on every pixel of movement.  
+- **Rendering:** If the canvas is HTML/CSS, use GPU transforms (`translate3d`) for fast compositing. If a bitmap or WebGL, update textures in the animation loop.  
+- **Throttling:** If rendering or content is heavy, you may throttle panning updates (e.g. only every nth pixel or every frame), but ensure input feels responsive.  
+- **Debounce on Wheel:** If using mouse wheel for panning, consider debouncing a series of scroll events to one pan update.  
+
+## Accessibility & Undo/Redo
+
+- **Accessibility:** Ensure keyboard pan is possible (arrow keys, or Space+arrow). The hand tool icon should have a tooltip/label. Provide focus outlines or ARIA labels if needed. 
+- **Undo/Redo:** Panning alone should *not* be an undoable action (it doesn’t alter document content). However, if the pan is actually controlling a Camera object/layer (Animate camera tool), those camera movements *are* part of the animation and should push undo history. Clearly separate “view pan” (no undo) from “camera move” (undoable). 
+
+## Testing Criteria
+
+- **Basic Interaction:** Test clicking and dragging with hand tool or spacebar: the canvas view should translate exactly by the drag vector (invert the drag movement).  
+- **Cursor Feedback:** Verify the cursor changes (e.g. to a grabbing hand) only during dragging, and returns afterward.  
+- **Tool Switching:** While dragging, if the user presses another tool or Esc, pan should end. If Space is released mid-drag, behavior continues as normal until release.  
+- **Multi-Input:** On touch devices, two-finger drag pans. Verify pinch-to-zoom doesn’t pan inadvertently. On mouse, try scroll to pan up/down and Shift+scroll to pan left/right (if implemented).  
+- **Edge Pan:** Attempt to pan beyond limits: if clipping on, the view stops at stage edges; if off, background shows with correct gray pasteboard.  
+- **Momentum:** Flick the canvas quickly; ensure movement continues only when enabled and stops realistically.  
+- **Zoom and Rotate:** Pan at various zoom levels and after rotating the stage. Verify that panning aligns with rotated axes. For example, if stage is rotated 90°, dragging right should move content down (relative to original axes).  
+- **Performance:** Under stress (e.g. high-DPI, complex scene), pan must stay fluid. CPU/GPU utilization should be reasonable (<60%).  
+- **Undo/Redo:** Confirm that undo after a pan (without camera keyframes) does not change view (or that view position cannot be undone). If camera layer is edited, verify undo recovers camera position.  
+
+All behaviors should match Adobe Animate’s own pan tool as closely as possible【33†L297-L300】, with similar modifiers and feel. Secondary references (e.g. Photoshop or Figma) indicate additional conveniences (spacebar toggling, inertia, two-finger pan) that users expect, so these are incorporated for a comprehensive solution【35†L122-L127】【41†L117-L120】.
+
+**Sources:** Adobe Animate official docs and user forums【33†L297-L300】, Figma help【35†L122-L127】【35†L134-L137】, Photoshop preferences discussion【41†L117-L120】, Illustrator feature requests【32†L60-L64】, etc.

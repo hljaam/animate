@@ -5,27 +5,29 @@
 }
 
 :root {
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #252525;
-  --bg-tertiary: #2e2e2e;
-  --bg-hover: #353535;
-  --border: #3a3a3a;
-  --border-light: #444;
-  --accent: #4a9eff;
-  --accent-hover: #3a8eef;
-  --text-primary: #e0e0e0;
-  --text-secondary: #999;
-  --text-muted: #666;
-  --workspace-bg: #111111;
-  --text-label: #bbb;
-  --accent-dim: rgba(74, 158, 255, 0.3);
-  --focus-ring: rgba(74, 158, 255, 0.6);
-  --danger: #e05252;
-  --success: #52e079;
+  --bg-primary: #0D0D11;
+  --bg-secondary: #16161C;
+  --bg-tertiary: #1E1E26;
+  --bg-hover: #2A2A34;
+  --border: #2A2A34;
+  --border-light: #3A3A46;
+  --accent: #8B5CF6;
+  --accent-hover: #7C4FE0;
+  --accent-dim: rgba(139, 92, 246, 0.25);
+  --text-primary: #E8E8ED;
+  --text-secondary: #8E8E9A;
+  --text-muted: #55555F;
+  --workspace-bg: #0A0A0E;
+  --text-label: #A0A0AC;
+  --focus-ring: rgba(139, 92, 246, 0.6);
+  --danger: #E05252;
+  --success: #52E079;
+  --export-btn: #E8446A;
 
   --topbar-height: 48px;
+  --toolbar-width: 48px;
   --left-panel-width: 220px;
-  --right-panel-width: 260px;
+  --right-panel-width: 280px;
   --timeline-height: 220px;
 }
 
@@ -101,8 +103,8 @@ input[type="color"] {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 3px 6px;
+  border-radius: 4px;
+  padding: 4px 8px;
   font-size: 12px;
   outline: none;
   width: 100%;
@@ -130,7 +132,7 @@ input[type="color"] {
 
 label {
   color: var(--text-label);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -139,8 +141,8 @@ select {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 3px 6px;
+  border-radius: 4px;
+  padding: 4px 8px;
   font-size: 12px;
   outline: none;
   cursor: pointer;
@@ -151,7 +153,7 @@ textarea {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 6px;
   font-size: 12px;
   outline: none;
@@ -189,12 +191,12 @@ textarea:focus {
 }
 
 .panel-header {
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 1px;
   color: var(--text-secondary);
   display: flex;
   align-items: center;

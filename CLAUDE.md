@@ -27,16 +27,20 @@ IPC is the only bridge between renderer and main. All file operations go through
 
 All IPC handlers are registered centrally in `src/main/ipc/index.ts` via `registerAllHandlers()`.
 
-Current IPC methods: `importAsset`, `importSwf`, `saveProject`, `openProject`, `exportStart`, `exportFrame`, `exportFinalize`, `onExportProgress`.
+Current IPC methods: `importAsset`, `importSwf`, `importPsd`, `saveProject`, `openProject`, `openScript`, `exportStart`, `exportFrame`, `exportFinalize`, `onExportProgress`.
 
 ### State Management
 
 Two Zustand stores:
 
-- **`projectStore`** — project data (layers, assets, keyframes, tracks). Mutations go through Command classes for undo/redo. Direct mutators (`*Direct` methods like `addLayerDirect`, `removeLayerDirect`, `setKeyframeDirect`) are only called by Command classes — never from UI components.
+- **`projectStore`** — project data (layers, assets, keyframes, tracks). Undo/redo uses Immer patches (hybrid approach). Key methods:
+  - `applyAction(description, mutator)` — undoable mutation. Wraps the mutator in Immer's `produceWithPatches`, captures forward/inverse patches, and pushes to `CommandHistory`. Use this for all user-facing mutations.
+  - `mutateProject(mutator)` — non-undoable mutation via Immer `produce()`. Use for live drag updates and other ephemeral changes.
+  - `updateLayer(layerId, changes)` — non-undoable convenience method for simple layer property changes (name, visibility, lock).
 - **`editorStore`** — ephemeral UI state (selectedLayerId, currentFrame, isPlaying, zoom, panX/Y, activeTool, exportProgress, showCommandConsole, showNewProjectDialog)
+- **`clipboardStore`** — clipboard state for copy/paste operations
 
-**Critical convention:** All user-facing mutations to project data must go through a Command (`src/renderer/store/commands/`). Commands implement `ICommand` with `execute()`, `undo()`, and `description`. `CommandHistory` (inside projectStore) manages the undo/redo stack. Existing commands: AddLayer, RemoveLayer, UpdateLayer, AddKeyframe, UpdateKeyframe, DuplicateLayer.
+**Critical convention:** All user-facing mutations to project data must go through `applyAction()`. `CommandHistory` (`src/renderer/store/commands/Command.ts`) stores `PatchEntry` objects (description + Immer patches + inverse patches). Undo applies inverse patches; redo re-applies forward patches. No per-operation Command classes needed — any mutation is automatically undoable.
 
 ### Rendering
 
@@ -53,11 +57,17 @@ Project → assets: Asset[]
 
 Four layer types: `image` (references asset by `assetId`), `text` (has `textData`), `shape` (has `shapeData` with fill paths), `symbol` (nested timeline via `symbolId`).
 
+Layer factory functions in `src/renderer/utils/layerFactory.ts`: `createImageLayer()`, `createTextLayer()`, `createRectangleLayer()`, `createEllipseLayer()`, `createSymbolLayer()`.
+
 Properties animated per layer: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `opacity`. Each property has its own `PropertyTrack` with sorted keyframes.
 
 Layers also support: `blendMode`, `tintColor`/`tintAmount`, `filters` (blur/dropShadow/glow via `FilterConfig[]`), `assetSwaps` (frame-by-frame asset swapping), `isMask`/`maskLayerId` (masking), and `shapeKeyframes` (shape morphing).
 
 Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId`.
+
+### Symbols
+
+Symbols (`SymbolDef`) are reusable nested timelines containing their own layers. They live in `project.symbols` (a map of `symbolId → SymbolDef`). Symbol layers reference a `symbolId` and render the symbol's nested timeline. The editor supports nested editing — `editorStore.editingSymbolId` tracks which symbol is being edited. "Convert to Symbol" wraps existing layers into a new symbol; "Edit Symbol" enters the nested timeline.
 
 ### Hooks
 
@@ -86,6 +96,7 @@ SWF import uses JPEXS FFDec (`ffdec.jar`) to decompile SWFs. Key files in `src/m
 - **`matrixUtils.ts`** — Flash matrix decomposition utilities used by the timeline parser.
 - **`svgToShapeData.ts`** — Converts JPEXS-exported SVG vector shapes into the app's `ShapeData` format.
 - **`swfHandlers.ts`** — Registers `'import-swf'` IPC handler. Extracts assets and parses timeline directly via FFDec.
+- **`psdHandler.ts`** — Registers `'import-psd'` IPC handler. Imports Photoshop PSD files using `@webtoon/psd`.
 
 ### Export Pipeline
 
@@ -94,10 +105,12 @@ Renderer captures frames as raw RGBA binary → sends to main via IPC (`exportFr
 ### UI Layout
 
 ```
-TopBar (file ops, zoom, undo/redo, export)
-├── AssetsPanel │ StageContainer │ PropertiesPanel
+TopBar (file ops, zoom, undo/redo, export, tool select)
+├── LibraryPanel │ StageContainer │ PropertiesPanel
 Timeline (playback controls, layer rows, keyframe tracks)
 ```
+
+`LibraryPanel` manages assets and symbols with search and type filtering (all/images/symbols). Right-clicking timeline layers shows a context menu with: Duplicate, Delete, Hide/Show, Lock/Unlock, Convert to Symbol, Edit Symbol.
 
 `StageContainer` handles pan (Space+drag or middle-mouse) and zoom (Ctrl+wheel, centered on cursor). Zoom value of 0 means fit-to-canvas.
 

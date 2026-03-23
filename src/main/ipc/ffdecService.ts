@@ -93,22 +93,33 @@ export async function exportAssets(
 }
 
 /**
- * Dump the full SWF structure as XML using JPEXS FFDec CLI.
+ * Convert SWF to XML using JPEXS FFDec CLI (-swf2xml).
  * Returns the XML string containing all tags, timeline, matrices, etc.
  */
 export async function dumpSwf(swfPath: string): Promise<string> {
   const javaPath = getJavaPath()
   const jarPath = getFfdecJarPath()
+  const tempXml = join(
+    app.getPath('temp'),
+    'animate-swf2xml-' + Date.now() + '.xml'
+  )
   return new Promise((resolve, reject) => {
     execFile(
       javaPath,
-      ['-jar', jarPath, '-dumpSWF', swfPath],
+      ['-jar', jarPath, '-swf2xml', swfPath, tempXml],
       { timeout: 60000, maxBuffer: 100 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error && !stdout) {
-          reject(new Error(`JPEXS dumpSWF failed: ${error.message}\n${stderr}`))
-        } else {
-          resolve(stdout)
+      async (error, _stdout, stderr) => {
+        if (error) {
+          reject(new Error(`JPEXS swf2xml failed: ${error.message}\n${stderr}`))
+          return
+        }
+        try {
+          const { readFileSync, unlinkSync } = await import('fs')
+          const xml = readFileSync(tempXml, 'utf-8')
+          try { unlinkSync(tempXml) } catch { /* ignore */ }
+          resolve(xml)
+        } catch (readErr) {
+          reject(new Error(`Failed to read swf2xml output: ${readErr}`))
         }
       }
     )

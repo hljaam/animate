@@ -15,6 +15,7 @@ export type ParsedCommand =
   | { type: 'hide'; target: string }
   | { type: 'lock'; target: string }
   | { type: 'export-mp4' }
+  | { type: 'run' }
 
 export type ParseResult = { ok: ParsedCommand } | { error: string }
 
@@ -172,6 +173,11 @@ export function parseCommand(input: string): ParseResult {
   if (cmd === 'lock') {
     const target = tokens.slice(1).join(' ') || 'selected'
     return { ok: { type: 'lock', target } }
+  }
+
+  // run (batch script from file)
+  if (cmd === 'run') {
+    return { ok: { type: 'run' } }
   }
 
   return { error: `Unknown command "${tokens[0]}". Press Tab or see suggestions.` }

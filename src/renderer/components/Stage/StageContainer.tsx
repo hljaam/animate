@@ -3,7 +3,6 @@ import { usePixiStage } from '../../hooks/usePixiStage'
 import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
 import { createTextLayer, createImageLayer } from '../../utils/layerFactory'
-import { AddLayerCommand } from '../../store/commands/AddLayerCommand'
 
 const StageContainer = memo(function StageContainer(): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -270,21 +269,30 @@ const StageContainer = memo(function StageContainer(): React.ReactElement {
       }
       state.addAsset(asset)
       const layer = createImageLayer(asset, project)
-      state.history.push(new AddLayerCommand(layer))
+      state.applyAction(`Add layer "${layer.name}"`, (draft) => {
+        draft.layers.push(layer)
+        draft.layers.sort((a, b) => a.order - b.order)
+      })
       useEditorStore.getState().setSelectedLayerId(layer.id)
     }
+    // Reset to 100% zoom, centered
+    useEditorStore.getState().setViewport(1, 0, 0)
   }
 
   function handleAddText(): void {
     if (!project) return
     const layer = createTextLayer(project)
-    useProjectStore.getState().history.push(new AddLayerCommand(layer))
+    useProjectStore.getState().applyAction(`Add layer "${layer.name}"`, (draft) => {
+      draft.layers.push(layer)
+      draft.layers.sort((a, b) => a.order - b.order)
+    })
     useEditorStore.getState().setSelectedLayerId(layer.id)
   }
 
   return (
     <div
       ref={containerRef}
+      data-stage-container
       style={styles.container}
     >
       {!project && (
@@ -325,6 +333,7 @@ const StageContainer = memo(function StageContainer(): React.ReactElement {
           </div>
         </div>
       )}
+
     </div>
   )
 })
@@ -334,7 +343,7 @@ export default StageContainer
 const styles: Record<string, React.CSSProperties> = {
   container: {
     flex: 1,
-    background: '#111',
+    background: 'var(--workspace-bg)',
     position: 'relative',
     overflow: 'hidden',
     display: 'flex',

@@ -3,7 +3,6 @@ import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
 import AssetThumbnail from './AssetThumbnail'
 import { createImageLayer } from '../../utils/layerFactory'
-import { AddLayerCommand } from '../../store/commands/AddLayerCommand'
 
 export default function AssetsPanel(): React.ReactElement {
   const project = useProjectStore((s) => s.project)
@@ -29,7 +28,10 @@ export default function AssetsPanel(): React.ReactElement {
 
       // Auto-create a layer for the imported asset
       const layer = createImageLayer(asset, project)
-      state.history.push(new AddLayerCommand(layer))
+      state.applyAction(`Add layer "${layer.name}"`, (draft) => {
+        draft.layers.push(layer)
+        draft.layers.sort((a, b) => a.order - b.order)
+      })
     }
   }
 

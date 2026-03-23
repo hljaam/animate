@@ -1,20 +1,39 @@
-import React from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useExport } from '../../hooks/useExport'
 
+function resetViewToCenter(): void {
+  useEditorStore.getState().setViewport(1, 0, 0)
+}
+
 export default function TopBar(): React.ReactElement {
   const project = useProjectStore((s) => s.project)
   const history = useProjectStore((s) => s.history)
+  useProjectStore((s) => s.historyVersion) // subscribe to history changes for undo/redo button state
   const { setShowNewProjectDialog } = useEditorStore()
   const { exportProject } = useExport()
   const zoom = useEditorStore((s) => s.zoom)
   const fitZoom = useEditorStore((s) => s.fitZoom)
-  const activeTool = useEditorStore((s) => s.activeTool)
+  const editingSymbolId = useEditorStore((s) => s.editingSymbolId)
+
+  const [fileMenuOpen, setFileMenuOpen] = useState(false)
+  const fileMenuRef = useRef<HTMLDivElement>(null)
 
   const effectiveZoom = zoom || fitZoom
   const zoomPercent = Math.round(effectiveZoom * 100)
-  const presets = [25, 50, 75, 100, 150, 200]
+
+  // Close file menu on outside click
+  useEffect(() => {
+    if (!fileMenuOpen) return
+    function handleClick(e: MouseEvent): void {
+      if (fileMenuRef.current && !fileMenuRef.current.contains(e.target as Node)) {
+        setFileMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [fileMenuOpen])
 
   function clampZoom(z: number): number {
     return Math.max(fitZoom * 0.1, Math.min(8, z))
@@ -27,167 +46,125 @@ export default function TopBar(): React.ReactElement {
   }
 
   async function handleOpen(): Promise<void> {
+    setFileMenuOpen(false)
     const result = await window.electronAPI.openProject()
     if (!result) return
     const parsed = JSON.parse(result.data)
     useProjectStore.getState().setProject(parsed)
     useEditorStore.getState().setSelectedLayerId(null)
     useEditorStore.getState().setCurrentFrame(0)
-  }
-
-  async function handleOpenFla(): Promise<void> {
-    const result = await window.electronAPI.importFla()
-    if (!result) return
-    useProjectStore.getState().setProject(result as any)
-    useEditorStore.getState().setSelectedLayerId(null)
-    useEditorStore.getState().setCurrentFrame(0)
-  }
-
-  async function handleOpenXfl(): Promise<void> {
-    const result = await window.electronAPI.importXfl()
-    if (!result) return
-    useProjectStore.getState().setProject(result as any)
-    useEditorStore.getState().setSelectedLayerId(null)
-    useEditorStore.getState().setCurrentFrame(0)
+    resetViewToCenter()
   }
 
   async function handleOpenSwf(): Promise<void> {
+    setFileMenuOpen(false)
     const result = await window.electronAPI.importSwf()
     if (!result) return
     useProjectStore.getState().setProject(result as any)
     useEditorStore.getState().setSelectedLayerId(null)
     useEditorStore.getState().setCurrentFrame(0)
+    resetViewToCenter()
   }
 
-  async function handleImportAnimate(): Promise<void> {
-    const result = await window.electronAPI.importAnimate()
+  async function handleOpenPsd(): Promise<void> {
+    setFileMenuOpen(false)
+    const result = await window.electronAPI.importPsd()
     if (!result) return
     useProjectStore.getState().setProject(result as any)
     useEditorStore.getState().setSelectedLayerId(null)
     useEditorStore.getState().setCurrentFrame(0)
+    resetViewToCenter()
   }
+
+  const editingSymbol = editingSymbolId
+    ? project?.symbols?.find((s) => s.id === editingSymbolId)
+    : null
 
   return (
     <div style={styles.topbar}>
-      {/* Logo / Project Name */}
+      {/* Left: Logo + Menu + Breadcrumb */}
       <div style={styles.left}>
-        <span style={styles.logo}>▶ Animate</span>
-        {project && (
-          <span style={styles.projectName}>{project.name}</span>
-        )}
-      </div>
+        <span style={styles.logo}>ANIMATEPRO</span>
 
-      {/* Center: Tools + File actions */}
-      <div style={styles.center}>
-        <button
-          className="icon-btn"
-          title="Select Tool (V)"
-          onClick={() => useEditorStore.getState().setActiveTool('select')}
-          style={activeTool === 'select' ? styles.toolActive : undefined}
-        >
-          V
-        </button>
-        <button
-          className="icon-btn"
-          title="Hand/Pan Tool (H)"
-          onClick={() => useEditorStore.getState().setActiveTool('hand')}
-          style={activeTool === 'hand' ? styles.toolActive : undefined}
-        >
-          H
-        </button>
+        <div style={styles.menuBar}>
+          <div ref={fileMenuRef} style={{ position: 'relative' }}>
+            <button className="icon-btn" style={styles.menuItem} onClick={() => setFileMenuOpen((o) => !o)}>File</button>
+            {fileMenuOpen && (
+              <div style={styles.dropdown}>
+                <button style={styles.dropdownItem} onClick={() => { setFileMenuOpen(false); setShowNewProjectDialog(true) }}>New Project</button>
+                <button style={styles.dropdownItem} onClick={handleOpen}>Open Project</button>
+                <button style={styles.dropdownItem} onClick={handleSave} disabled={!project}>Save Project</button>
+                <div style={styles.dropdownSep} />
+                <button style={styles.dropdownItem} onClick={handleOpenSwf}>Import SWF...</button>
+                <button style={styles.dropdownItem} onClick={handleOpenPsd}>Import PSD...</button>
+                <div style={styles.dropdownSep} />
+                <button style={styles.dropdownItem} onClick={() => { setFileMenuOpen(false); exportProject() }} disabled={!project}>Export MP4</button>
+              </div>
+            )}
+          </div>
+          <button className="icon-btn" style={styles.menuItem} onClick={handleOpen}>Edit</button>
+          <button className="icon-btn" style={styles.menuItem}>View</button>
+          <button className="icon-btn" style={styles.menuItem}>Modify</button>
+        </div>
+
         <div style={styles.sep} />
-        <button
-          className="icon-btn"
-          title="New Project"
-          onClick={() => setShowNewProjectDialog(true)}
-        >
-          New
-        </button>
-        <button className="icon-btn" title="Open Project" onClick={handleOpen}>
-          Open
-        </button>
-        <button className="icon-btn" title="Open FLA File" onClick={handleOpenFla}>
-          FLA
-        </button>
-        <button className="icon-btn" title="Open XFL Folder" onClick={handleOpenXfl}>
-          XFL
-        </button>
-        <button className="icon-btn" title="Open SWF File" onClick={handleOpenSwf}>
-          SWF
-        </button>
-        <button className="icon-btn" title="Import from Adobe Animate (FLA/XFL + SWF)" onClick={handleImportAnimate}>
-          Import
-        </button>
-        <button className="icon-btn" title="Save Project" onClick={handleSave} disabled={!project}>
-          Save
-        </button>
+
+        <div style={styles.breadcrumb}>
+          <span style={styles.breadcrumbMuted}>Project</span>
+          <span style={styles.breadcrumbArrow}>&gt;</span>
+          <span style={styles.breadcrumbActive}>
+            {editingSymbol ? editingSymbol.name : (project?.name ?? 'Untitled')}
+          </span>
+        </div>
       </div>
 
-      {/* Right: Undo/Redo + Zoom + Export */}
+      {/* Center: Viewport + Zoom + Console hint */}
+      <div style={styles.center}>
+        {project && (
+          <>
+            <span style={styles.infoLabel}>Viewport: {project.width} x {project.height}</span>
+            <span style={styles.infoLabel}>Zoom: {zoomPercent}%</span>
+          </>
+        )}
+        <span style={styles.consoleHint}>Press &apos;Ctrl+K&apos; for Command Console</span>
+      </div>
+
+      {/* Right: Status + Undo/Redo + Export */}
       <div style={styles.right}>
+        <span style={styles.statusLabel}>Status:</span>
+        <span style={styles.statusValue}>Saved</span>
+
+        <div style={styles.sep} />
+
         <button
           className="icon-btn"
           title="Undo (Ctrl+Z)"
           onClick={() => history.undo()}
           disabled={!history.canUndo()}
+          style={styles.undoRedoBtn}
         >
-          ↩ Undo
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8h10M3 8l3-3M3 8l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </button>
         <button
           className="icon-btn"
           title="Redo (Ctrl+Y)"
           onClick={() => history.redo()}
           disabled={!history.canRedo()}
+          style={styles.undoRedoBtn}
         >
-          ↪ Redo
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M13 8H3M13 8l-3-3M13 8l-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </button>
-        <div style={styles.sep} />
-        {project && (
-          <>
-            <button
-              className="icon-btn"
-              title="Zoom out"
-              onClick={() => useEditorStore.getState().setViewport(clampZoom(effectiveZoom / 1.25), 0, 0)}
-            >
-              −
-            </button>
-            <select
-              value={zoomPercent}
-              onChange={(e) => useEditorStore.getState().setViewport(Number(e.target.value) / 100, 0, 0)}
-              style={styles.zoomSelect}
-              title="Zoom level"
-            >
-              {!presets.includes(zoomPercent) && (
-                <option value={zoomPercent}>{zoomPercent}%</option>
-              )}
-              {presets.map((p) => (
-                <option key={p} value={p}>{p}%</option>
-              ))}
-            </select>
-            <button
-              className="icon-btn"
-              title="Zoom in"
-              onClick={() => useEditorStore.getState().setViewport(clampZoom(effectiveZoom * 1.25), 0, 0)}
-            >
-              +
-            </button>
-            <button
-              className="icon-btn"
-              title="Fit to window (Ctrl+0)"
-              onClick={() => useEditorStore.getState().setViewport(fitZoom, 0, 0)}
-            >
-              Fit
-            </button>
-            <div style={styles.sep} />
-          </>
-        )}
+
         <button
-          className="primary"
           onClick={exportProject}
           disabled={!project}
-          style={{ padding: '4px 16px' }}
+          style={styles.exportBtn}
         >
-          Export MP4
+          Export
         </button>
       </div>
     </div>
@@ -199,61 +176,138 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '0 12px',
+    padding: '0 16px',
     background: 'var(--bg-secondary)',
     borderBottom: '1px solid var(--border)',
-    height: '100%'
+    height: '100%',
+    gap: 16
   },
   left: {
     display: 'flex',
     alignItems: 'center',
     gap: 12,
-    minWidth: 200
+    flexShrink: 0
   },
   logo: {
-    fontWeight: 700,
-    fontSize: 15,
-    color: 'var(--accent)',
-    letterSpacing: 1
-  },
-  projectName: {
-    color: 'var(--text-secondary)',
-    fontSize: 13,
-    maxWidth: 180,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    fontWeight: 800,
+    fontSize: 14,
+    color: 'var(--text-primary)',
+    letterSpacing: 1.5,
     whiteSpace: 'nowrap'
+  },
+  menuBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 0,
+    marginLeft: 8
+  },
+  menuItem: {
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    padding: '4px 10px',
+    minWidth: 'auto',
+    minHeight: 'auto'
+  },
+  breadcrumb: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6
+  },
+  breadcrumbMuted: {
+    fontSize: 13,
+    color: 'var(--text-muted)'
+  },
+  breadcrumbArrow: {
+    fontSize: 11,
+    color: 'var(--text-muted)'
+  },
+  breadcrumbActive: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text-primary)'
   },
   center: {
     display: 'flex',
     alignItems: 'center',
-    gap: 4
+    gap: 16,
+    flex: 1,
+    justifyContent: 'center'
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    whiteSpace: 'nowrap'
+  },
+  consoleHint: {
+    fontSize: 11,
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap'
   },
   right: {
     display: 'flex',
     alignItems: 'center',
-    gap: 4,
-    minWidth: 200,
-    justifyContent: 'flex-end'
+    gap: 8,
+    flexShrink: 0
+  },
+  statusLabel: {
+    fontSize: 12,
+    color: 'var(--text-muted)'
+  },
+  statusValue: {
+    fontSize: 12,
+    color: 'var(--success)',
+    fontWeight: 500
   },
   sep: {
     width: 1,
     height: 24,
     background: 'var(--border)',
-    margin: '0 4px'
+    flexShrink: 0
   },
-  toolActive: {
-    background: 'var(--accent)',
+  undoRedoBtn: {
+    padding: '4px 6px',
+    minWidth: 32,
+    minHeight: 32
+  },
+  exportBtn: {
+    background: 'var(--export-btn)',
+    border: 'none',
+    borderRadius: 6,
+    padding: '6px 20px',
     color: '#fff',
-    borderRadius: 4
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    minHeight: 32
   },
-  zoomSelect: {
-    background: 'var(--bg-tertiary)',
-    color: 'var(--text-primary)',
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    marginTop: 4,
+    background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
-    borderRadius: 4,
-    padding: '2px 4px',
-    fontSize: 12,
-    cursor: 'pointer'
+    borderRadius: 6,
+    padding: '4px 0',
+    minWidth: 180,
+    zIndex: 1000,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
+  },
+  dropdownItem: {
+    display: 'block',
+    width: '100%',
+    padding: '6px 14px',
+    border: 'none',
+    background: 'none',
+    color: 'var(--text-secondary)',
+    fontSize: 13,
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const
+  },
+  dropdownSep: {
+    height: 1,
+    background: 'var(--border)',
+    margin: '4px 0'
   }
 }

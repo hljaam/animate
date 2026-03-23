@@ -26,7 +26,7 @@ export function usePlayback(): void {
     lastTimeRef.current = performance.now()
 
     function tick(time: number): void {
-      const { isPlaying, currentFrame, setCurrentFrame, setIsPlaying } = useEditorStore.getState()
+      const { isPlaying, currentFrame, setCurrentFrame, setIsPlaying, loopPlayback } = useEditorStore.getState()
       const { project } = useProjectStore.getState()
 
       if (!isPlaying || !project) {
@@ -42,10 +42,14 @@ export function usePlayback(): void {
         const nextFrame = currentFrame + 1
 
         if (nextFrame >= project.durationFrames) {
-          setCurrentFrame(0)
-          setIsPlaying(false)
-          rafRef.current = null
-          return
+          if (loopPlayback) {
+            setCurrentFrame(0)
+          } else {
+            setCurrentFrame(project.durationFrames - 1)
+            setIsPlaying(false)
+            rafRef.current = null
+            return
+          }
         } else {
           setCurrentFrame(nextFrame)
         }

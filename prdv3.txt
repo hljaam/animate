@@ -1,0 +1,800 @@
+# Product Design Document
+
+## Project
+
+**V1 UX Improvement Plan for a Motion Editor App (Adobe Animate-style)**
+
+## Document Purpose
+
+This document translates the current UI review into a practical product design plan focused on improving:
+
+* usability
+* first-time experience
+* editing clarity
+* accessibility
+* confidence in the core workflow
+
+---
+
+# 1. Product Context
+
+## Current Product
+
+A desktop-style 2D motion editor for:
+
+* importing images
+* adding text
+* arranging layers on a stage
+* animating on a timeline
+* exporting MP4
+
+## Current UI Structure
+
+From the screenshot, the app already has the right high-level layout:
+
+* **Top bar**: file actions, zoom, export
+* **Left panel**: assets
+* **Center**: stage/canvas
+* **Right panel**: inspector
+* **Bottom**: timeline
+
+This is a strong foundation. The issue is not the structure. The issue is that the experience still feels **empty, passive, and unclear**, especially for a first-time user.
+
+---
+
+# 2. Problem Statement
+
+The current interface looks like a professional editor shell, but it does not yet provide enough guidance, clarity, or affordance for users to confidently begin work.
+
+Users may struggle with:
+
+* knowing what to do first
+* understanding what the stage represents
+* distinguishing important actions from passive UI
+* reading low-contrast controls
+* understanding how layers, canvas, and timeline connect
+* interacting efficiently with small targets and faint controls
+
+---
+
+# 3. Target Users
+
+## Primary Users
+
+* beginner animators
+* marketers making simple motion content
+* creators making short videos
+* users familiar with design tools but not expert animators
+
+## User Expectations
+
+These users expect:
+
+* fast setup
+* obvious first actions
+* visible stage boundaries
+* intuitive timeline behavior
+* easy layer editing
+* export confidence
+* accessible controls that do not require precision hunting
+
+---
+
+# 4. UX Goals
+
+## Primary Goals
+
+1. Help a new user start within seconds
+2. Make the canvas feel like a real output document
+3. Make editing states and controls obvious
+4. Make timeline interaction easier to understand
+5. Improve readability, contrast, and clickability
+6. Build trust that the editor is stable and understandable
+
+## Non-Goals for This Phase
+
+* advanced rigging
+* frame-by-frame illustration tools
+* advanced graph editor
+* complex multi-scene workflow
+* enterprise collaboration features
+
+This phase is about making the **core editor experience feel clear and usable**.
+
+---
+
+# 5. Design Principles
+
+## 1. Guide the user when the screen is empty
+
+Empty space should teach the next step.
+
+## 2. Show the output clearly
+
+Users should always understand what will be exported.
+
+## 3. Prioritize the most important actions
+
+The UI should clearly emphasize actions that move the project forward.
+
+## 4. Reduce interpretation work
+
+Users should not need to guess what a panel, button, or state means.
+
+## 5. Accessibility is part of core UX
+
+Readable text, good contrast, keyboard support, and large targets should be built in, not added later.
+
+---
+
+# 6. Priority Breakdown
+
+---
+
+## Priority 1: Fix the First-Run Experience
+
+### Problem
+
+When the project is empty, the interface feels cold and unclear.
+The user must scan the left panel, right panel, and timeline to understand how to begin.
+
+This creates friction at the exact moment where the product should feel easiest.
+
+### Design Objective
+
+Turn the empty project state into a guided starting experience.
+
+### Proposed UX Changes
+
+#### A. Replace the empty black stage with a guided onboarding empty state
+
+When there are no layers and no assets, the center stage should display a clear entry screen.
+
+### Recommended empty-state content
+
+**Headline:**
+Start your animation
+
+**Primary actions:**
+
+* Import Image
+* Add Text
+* Choose Canvas Size
+* Start from Template
+
+**Secondary helper text:**
+Drag and drop PNG, JPG, or SVG here to begin
+
+#### B. Centralize the first action
+
+The first action should happen in the center of the screen, not only in side panels.
+
+#### C. Reduce competing entry points
+
+During empty state, do not make the user choose between:
+
+* left import
+* right add text
+* bottom add text
+
+Instead, show all primary starting actions in one place.
+
+#### D. Add lightweight first-run guidance
+
+Optional short guidance:
+
+1. Import asset
+2. Place on stage
+3. Move playhead
+4. Add keyframe
+5. Export MP4
+
+### UX Behavior Spec
+
+* Empty state appears only when project has no layers
+* After first asset/text is added, the empty state disappears
+* Side panels remain accessible, but center stage is the main guide during setup
+
+### Accessibility Requirements
+
+* buttons must be keyboard reachable
+* high-contrast text
+* descriptive button labels
+* drag-and-drop should not be the only way to begin
+
+### Success Metrics
+
+* reduced time-to-first-layer
+* reduced first-session abandonment
+* increased percentage of users who import or add text in first minute
+
+### Why This Matters
+
+This is the highest-impact UX improvement because it affects every new user and every new project.
+
+---
+
+## Priority 2: Make the Stage Feel Like a Real Document
+
+### Problem
+
+Right now the center area feels like a large black void.
+It is unclear:
+
+* where the actual stage begins and ends
+* whether black is the exported background
+* what the canvas size is
+* what area is included in the final video
+
+This is dangerous because users need confidence about what they are building.
+
+### Design Objective
+
+Make the stage feel like a concrete document with clear boundaries and properties.
+
+### Proposed UX Changes
+
+#### A. Show a visible stage boundary
+
+The stage should look like an artboard, not an infinite black area.
+
+Use:
+
+* a subtle border
+* drop shadow
+* clear difference between workspace background and stage background
+
+#### B. Show canvas dimensions
+
+Display visible document info such as:
+
+* 1920 × 1080
+* 1080 × 1080
+* 30 FPS
+* 5.0 sec
+
+This can be shown:
+
+* above the stage
+* in the inspector when no layer is selected
+* in a small stage info chip
+
+#### C. Separate editor background from stage background
+
+The workspace behind the stage should be visually different from the stage itself.
+
+#### D. Add transparency and background controls
+
+If the stage supports transparent or colored backgrounds:
+
+* show checkerboard for transparency
+* allow background color setting
+* clarify what gets exported
+
+#### E. Make document settings easy to find
+
+Users should be able to access:
+
+* size
+* duration
+* FPS
+* background
+  without having to hunt around.
+
+### UX Behavior Spec
+
+When nothing is selected:
+
+* the inspector shows document settings
+* stage displays size info visibly
+* exported area is visually obvious
+
+### Accessibility Requirements
+
+* stage outline must not rely only on subtle gray contrast
+* document metadata should be legible at normal zoom
+* controls should be labeled with text, not icon-only
+
+### Success Metrics
+
+* fewer user mistakes around export framing
+* fewer questions about canvas size/background
+* improved understanding of what will render in output
+
+### Why This Matters
+
+Users need to trust the stage. If the stage is unclear, everything downstream feels unreliable.
+
+---
+
+## Priority 3: Make the Inspector Useful and Contextual
+
+### Problem
+
+The right panel currently says “No layer selected,” but does not do enough with that state.
+That wastes valuable space and misses a chance to guide the user.
+
+### Design Objective
+
+Make the right inspector context-aware so it is useful in every state.
+
+### Proposed UX Changes
+
+#### A. Split inspector into two clear modes
+
+### Mode 1: No layer selected
+
+Show **Document / Project settings**
+
+* canvas size
+* duration
+* FPS
+* background
+* export settings summary
+
+### Mode 2: Layer selected
+
+Show **Layer properties**
+
+* name
+* visibility
+* lock
+* position X/Y
+* scale
+* rotation
+* opacity
+* timing
+* keyframe-related controls
+
+#### B. Clarify tab logic
+
+The current Document / Layer tab structure is okay, but the content needs stronger behavior.
+
+Recommended model:
+
+* if nothing selected, default to Document tab
+* if layer selected, automatically reveal Layer tab
+* still allow switching manually if needed
+
+#### C. Add editable numeric fields
+
+For motion tools, property editing should support:
+
+* direct value input
+* stepper arrows
+* drag-to-adjust where appropriate
+* keyboard nudging
+
+#### D. Show state-dependent actions
+
+Examples:
+
+* with no layer: Add Text, Import Asset, Set Background
+* with text layer selected: Edit Text, Font, Size, Color, Position
+* with image selected: Fit to Stage, Crop, Opacity, Transform
+
+### UX Behavior Spec
+
+* inspector content changes instantly on selection
+* selection state is always obvious
+* values are visible, editable, and reversible
+
+### Accessibility Requirements
+
+* field labels must be readable
+* controls must be usable without mouse-only dragging
+* focus states must be visible
+* numeric inputs must be screen-reader labeled
+
+### Success Metrics
+
+* increased use of inspector controls
+* reduced confusion when no layer is selected
+* faster property editing
+
+### Why This Matters
+
+The inspector is the app’s main control panel. It should never feel empty or dead.
+
+---
+
+## Priority 4: Improve Timeline Clarity and Actionability
+
+### Problem
+
+The timeline is a core part of the product, but from the screenshot it looks faint, passive, and under-explained.
+
+Users may not immediately understand:
+
+* where to add keyframes
+* how the playhead works
+* how layer rows will appear
+* how time relates to stage edits
+
+### Design Objective
+
+Make the timeline feel more readable, interactive, and instructional.
+
+### Proposed UX Changes
+
+#### A. Increase visual clarity
+
+Improve:
+
+* ruler contrast
+* playhead visibility
+* label readability
+* track row separation
+* active row highlighting
+
+#### B. Improve empty timeline behavior
+
+When there are no layers, show a helpful instruction such as:
+
+* Add an image or text layer to start animating
+* Move the playhead and change a property to create a keyframe
+
+#### C. Make the playhead stronger
+
+The playhead should stand out clearly with:
+
+* stronger color contrast
+* visible handle
+* current time label
+
+#### D. Clarify the relationship between selection and timeline
+
+When a layer is selected:
+
+* its row should highlight
+* its animation tracks should be visible
+* the selected property track should feel clearly connected to the inspector
+
+#### E. Add obvious keyframe affordances
+
+Users should be able to understand:
+
+* where keyframes go
+* what a keyframe looks like
+* how to add one
+
+Helpful options:
+
+* diamond add button
+* auto-key indicator
+* “Add keyframe” action in inspector
+* hover affordance on track rows
+
+#### F. Improve transport controls
+
+Playback controls should be larger and more obvious:
+
+* play/pause
+* skip to start
+* current time
+* total duration
+
+### UX Behavior Spec
+
+* selected layer state syncs with timeline state
+* timeline rows expand when needed
+* current time updates clearly during playback
+* empty-state hints vanish once timeline has active layers
+
+### Accessibility Requirements
+
+* timeline labels readable at default zoom
+* playhead and selected state not communicated by color alone
+* playback controls keyboard accessible
+* hotkeys discoverable via tooltip
+
+### Success Metrics
+
+* increased first successful keyframe action
+* reduced time to understand timeline basics
+* improved playback interaction
+
+### Why This Matters
+
+If the timeline feels unclear, the product stops being an animation tool and becomes just a canvas editor.
+
+---
+
+## Priority 5: Strengthen Action Hierarchy Across the App
+
+### Problem
+
+Many controls currently have similar visual weight.
+The result is weak hierarchy.
+
+The UI does not strongly communicate:
+
+* what is primary
+* what is secondary
+* what is contextual
+* what is inactive
+
+### Design Objective
+
+Create a stronger visual hierarchy so the user always knows the next likely action.
+
+### Proposed UX Changes
+
+#### A. Define primary workflow actions
+
+The core creation loop appears to be:
+
+1. Import
+2. Add text
+3. Arrange on stage
+4. Animate on timeline
+5. Preview
+6. Export
+
+These actions should be visually prioritized throughout the interface.
+
+#### B. Clarify top bar hierarchy
+
+Recommended levels:
+
+* highest emphasis: Export, Preview, primary creation actions
+* medium emphasis: New, Open, Save
+* lower emphasis: zoom controls, document metadata
+
+#### C. Reduce duplicate actions
+
+The same action should not appear in multiple places without clear logic.
+
+Example:
+
+* “Add Text” should have one clear primary location
+* duplicates can exist as shortcuts, but the user should understand they are the same action
+
+#### D. Improve current-state signaling
+
+Examples:
+
+* active tab should feel clearly active
+* selected panel context should be visually stronger
+* disabled controls should look intentionally disabled, not broken
+
+#### E. Improve hover, pressed, and selected states
+
+Right now the UI may feel too visually flat.
+Add stronger feedback for:
+
+* hover
+* active press
+* selected layer
+* focused field
+* disabled buttons
+
+### UX Behavior Spec
+
+* users should understand the primary path within seconds
+* duplicated actions should map cleanly to the same system behavior
+* important controls should stand out without clutter
+
+### Accessibility Requirements
+
+* active state cannot rely only on color
+* focus ring must be visible
+* disabled states must remain readable enough to understand purpose
+* buttons must have descriptive labels
+
+### Success Metrics
+
+* faster first project completion
+* fewer mistaken clicks
+* better discoverability of primary actions
+
+### Why This Matters
+
+Strong hierarchy reduces cognitive load. It helps the app feel intentional instead of merely assembled.
+
+---
+
+# 7. Accessibility Design Requirements
+
+This should be treated as a cross-cutting requirement across all priorities.
+
+## A. Contrast
+
+Current UI likely has multiple low-contrast areas.
+
+### Improve contrast for:
+
+* panel labels
+* tab labels
+* timeline ticks and labels
+* empty-state text
+* inspector metadata
+* disabled controls
+
+## B. Typography
+
+Use more readable UI sizing.
+
+### Recommended baseline
+
+* body/interface text: 13–14 px minimum
+* important controls/tabs: 14–16 px
+* panel headers: stronger weight and spacing
+* timeline labels: must be readable without strain
+
+## C. Hit Target Size
+
+Interactive items should have sufficiently large clickable areas.
+
+### Recommended target
+
+* about 36–40 px minimum for common controls
+* larger invisible click zones for tiny icons
+
+## D. Keyboard Navigation
+
+Support core keyboard accessibility from early on.
+
+### Required support
+
+* Tab navigation
+* Enter/Space activation
+* arrow key adjustments
+* Delete for selected layer removal
+* Space to preview playback
+* visible focus states everywhere
+
+## E. Screen Reader / Semantic Labeling
+
+All actionable controls should have proper accessible names:
+
+* Import Asset
+* Add Text Layer
+* Play Preview
+* Export MP4
+* Zoom Level
+* Timeline Playhead
+
+## F. Don’t Rely on Color Alone
+
+Selected state, disabled state, and active tabs should use:
+
+* border
+* shape
+* weight
+* icon/state marker
+  in addition to color.
+
+---
+
+# 8. Proposed Information Architecture Improvements
+
+## Top Bar
+
+Should include:
+
+* app/project name
+* New / Open / Save
+* Undo / Redo
+* Zoom
+* Preview
+* Export
+
+## Left Panel
+
+Should focus on:
+
+* imported assets
+* upload/import action
+* drag support
+* asset thumbnails
+* asset state
+
+## Center Stage
+
+Should show:
+
+* stage boundary
+* size/duration/FPS info
+* empty-state onboarding when no layers exist
+* stage controls
+
+## Right Panel
+
+Should show:
+
+* document settings when nothing selected
+* layer properties when layer selected
+
+## Bottom Timeline
+
+Should show:
+
+* transport
+* time ruler
+* layer rows
+* keyframes
+* current time
+* empty-state help when no layers exist
+
+---
+
+# 9. Suggested MVP UX Changes by Phase
+
+## Phase 1: Highest-Impact Improvements
+
+* redesign empty state in center stage
+* show stage boundary and canvas dimensions
+* fix confusing zoom display
+* improve contrast and text readability
+* enlarge important controls
+* make inspector useful when nothing is selected
+
+## Phase 2: Workflow Clarity
+
+* stronger timeline visuals
+* better playhead and ruler
+* clearer selected layer behavior
+* better Add Text / Import action hierarchy
+* improved hover/active/focus states
+
+## Phase 3: Accessibility and Polish
+
+* full keyboard navigation pass
+* semantic labels for controls
+* better disabled states
+* tooltip and shortcut hints
+* onboarding tips for first project
+
+---
+
+# 10. Open Design Questions
+
+These are worth deciding before implementation:
+
+1. Is the stage background part of export, or only editor chrome?
+2. Should document settings live mainly in the right inspector or top bar?
+3. Should Add Text exist in one place or multiple places?
+4. Will keyframes be auto-created when a property changes, or manually added?
+5. Is this tool for beginners first, or should it mimic pro tools closely?
+6. Will templates be part of first-run onboarding?
+
+---
+
+# 11. Final Summary
+
+The current UI has the right structural foundation, but it needs stronger experience design in five areas:
+
+## Summary of Priorities
+
+### 1. First-run experience
+
+Guide users clearly when the project is empty.
+
+### 2. Stage clarity
+
+Make the canvas feel like a real document with visible boundaries and settings.
+
+### 3. Inspector usefulness
+
+Ensure the right panel is valuable in every state.
+
+### 4. Timeline readability
+
+Make animation controls easier to understand and act on.
+
+### 5. Action hierarchy
+
+Emphasize the core workflow and reduce ambiguity.
+
+## Overall Product Direction
+
+The app should feel like:
+
+* simple enough for beginners
+* structured enough for creators
+* clear enough to trust
+* efficient enough to keep using
+
+Right now, the biggest win is not adding more features.
+The biggest win is making the current workflow feel **obvious, guided, and accessible**.

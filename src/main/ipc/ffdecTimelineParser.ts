@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser'
 import { nanoid } from 'nanoid'
-import { decomposeMatrix, multiplyMatrices, rgbToHex, type Matrix2D } from './matrixUtils'
+import { decomposeMatrix, type Matrix2D } from './matrixUtils'
 import type { ImageAssetInfo, ShapeAssetInfo } from './ffdecAssetExtractor'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -45,12 +45,6 @@ interface PlacementData {
   visibleRanges: Array<{ start: number; end: number }>
 }
 
-interface FontInfo {
-  id: number
-  name: string
-  codeUnits: number[]
-}
-
 // ── Main Parser ────────────────────────────────────────────────────────────
 
 export function parseSwfDump(
@@ -67,14 +61,10 @@ export function parseSwfDump(
   })
 
   const parsed = parser.parse(xmlString)
-
-  // Navigate to the root SWF structure
-  // JPEXS dumpSWF output format varies — try common structures
   const swf = parsed.swf || parsed.SWF || parsed
-  const headerNode = swf.Header || swf.header || {}
-  const tagsNode = swf.tags || swf.Tags || {}
 
-  const header = parseHeader(headerNode)
+  const header = parseHeader(swf)
+  const tagsNode = swf.tags || swf.Tags || {}
   const tags = normalizeTagList(tagsNode)
 
   // Build character dictionary and font map
@@ -83,15 +73,23 @@ export function parseSwfDump(
 
   for (const tag of tags) {
     const tagType = getTagType(tag)
-    const charId = getCharacterId(tag)
 
-    if (charId !== undefined) {
+    // Capture character definitions (DefineShape, DefineBits, DefineText, etc.)
+    const charId =
+      attr(tag, 'shapeId') ??
+      attr(tag, 'characterId') ??
+      attr(tag, 'bitmapId') ??
+      attr(tag, 'textId')
+    if (charId !== undefined && tagType.startsWith('Define')) {
       characters.set(charId, tag)
     }
 
-    if (tagType.includes('Font')) {
-      const fontInfo = parseFontTag(tag, charId || 0)
-      if (fontInfo) fonts.set(fontInfo.id, fontInfo)
+    if (tagType.includes('Font') && !tagType.includes('Align') && !tagType.includes('Name')) {
+      const fontId = attr(tag, 'fontId') ?? charId
+      if (fontId !== undefined) {
+        const fontInfo = parseFontTag(tag, fontId)
+        if (fontInfo) fonts.set(fontInfo.id, fontInfo)
+      }
     }
   }
 
@@ -121,22 +119,37 @@ export function parseSwfDump(
 
 // ── Header Parsing ────────────────────────────────────────────────────────
 
-function parseHeader(node: any): SwfHeader {
-  const frameSize = node.frameSize || node.FrameSize || {}
-  const xMax = frameSize.xMax || frameSize.XMax || frameSize['@_xMax'] || 0
-  const yMax = frameSize.yMax || frameSize.YMax || frameSize['@_yMax'] || 0
+function parseHeader(swf: any): SwfHeader {
+  // swf2xml puts frameCount, frameRate on the root <swf> element
+  const frameCount = Math.max(1, attr(swf, 'frameCount') ?? 1)
+  const fps = Math.round(attr(swf, 'frameRate') ?? 24)
+
+  // displayRect contains dimensions in twips
+  const rect = swf.displayRect || {}
+  const xMax = attr(rect, 'Xmax') ?? attr(rect, 'xMax') ?? 0
+  const yMax = attr(rect, 'Ymax') ?? attr(rect, 'yMax') ?? 0
+
+  // Find background color from tags
+  let backgroundColor = '#FFFFFF'
+  const tagsNode = swf.tags || swf.Tags || {}
+  const tags = normalizeTagList(tagsNode)
+  for (const tag of tags) {
+    if (getTagType(tag).includes('SetBackgroundColor')) {
+      const bg = tag.backgroundColor || tag.color || {}
+      const r = attr(bg, 'red') ?? 255
+      const g = attr(bg, 'green') ?? 255
+      const b = attr(bg, 'blue') ?? 255
+      backgroundColor = rgbToHex(r, g, b)
+      break
+    }
+  }
 
   return {
     width: Math.round(xMax / 20),
     height: Math.round(yMax / 20),
-    fps: Math.round(
-      node.frameRate || node.FrameRate || node['@_frameRate'] || 24
-    ),
-    frameCount: Math.max(
-      1,
-      node.frameCount || node.FrameCount || node['@_frameCount'] || 1
-    ),
-    backgroundColor: '#FFFFFF'
+    fps,
+    frameCount,
+    backgroundColor
   }
 }
 
@@ -158,30 +171,25 @@ function processTimeline(
   for (const tag of tags) {
     const tagType = getTagType(tag)
 
-    if (tagType.includes('SetBackgroundColor')) {
-      // Already handled in header
-      continue
-    }
-
     if (tagType.includes('PlaceObject')) {
-      const depth = getNum(tag, 'depth') || getNum(tag, 'Depth') || 0
+      const depth = attr(tag, 'depth') ?? 0
       const existing = displayList.get(depth)
-      const charId =
-        getNum(tag, 'characterId') ??
-        getNum(tag, 'CharacterId') ??
-        existing?.characterId
+
+      // characterId: in swf2xml, PlaceObject2Tag has characterId attribute
+      // For move-only updates (placeFlagMove=true, placeFlagHasCharacter=false),
+      // characterId may be 0 — use existing
+      const hasCharacter = attr(tag, 'placeFlagHasCharacter') === true
+      const isMove = attr(tag, 'placeFlagMove') === true
+      const rawCharId = attr(tag, 'characterId')
+      const charId = hasCharacter && rawCharId ? rawCharId : existing?.characterId
       if (charId === undefined) continue
 
-      const isUpdate = getBool(tag, 'isUpdate') || getBool(tag, 'flagMove')
-
-      // Parse matrix — preserve existing if not provided
-      const matrixNode =
-        tag.matrix || tag.Matrix || tag.placingMatrix || tag.PlacingMatrix
+      // Parse matrix
+      const matrixNode = tag.matrix
       const matrix = matrixNode ? parseMatrixNode(matrixNode) : existing ? { ...existing.matrix } : { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
 
-      const newCharId = getNum(tag, 'characterId') ?? getNum(tag, 'CharacterId')
       const isCharReplacement =
-        isUpdate && existing && newCharId !== undefined && newCharId !== existing.characterId
+        isMove && existing && hasCharacter && rawCharId !== undefined && rawCharId !== existing.characterId
 
       if (isCharReplacement) {
         const oldKey = depth + ':' + existing!.characterId
@@ -191,7 +199,7 @@ function processTimeline(
           if (lr.end === totalFrames - 1) lr.end = Math.max(0, currentFrame - 1)
         }
         displayList.set(depth, { characterId: charId, matrix })
-      } else if (!isUpdate || !existing) {
+      } else if (!isMove || !existing) {
         displayList.set(depth, { characterId: charId, matrix })
       } else {
         existing.matrix = matrix
@@ -216,7 +224,7 @@ function processTimeline(
     }
 
     if (tagType.includes('RemoveObject')) {
-      const depth = getNum(tag, 'depth') || getNum(tag, 'Depth') || 0
+      const depth = attr(tag, 'depth') ?? 0
       const entry = displayList.get(depth)
       if (entry) {
         const key = depth + ':' + entry.characterId
@@ -240,6 +248,9 @@ function processTimeline(
   // Convert placements to layers
   const layers: LayerResult[] = []
   let layerOrder = 0
+  // Sort by depth ascending: in SWF, higher depth = rendered on top.
+  // The renderer processes lower order first (= back), so depth ascending
+  // gives the correct z-order: lowest depth at back, highest depth on top.
   const sorted = Array.from(placements.values()).sort((a, b) => a.depth - b.depth)
 
   for (const placement of sorted) {
@@ -281,29 +292,109 @@ function buildLayerFromPlacement(
     return buildImageLayer('Image ' + charId, imageAsset.id, placement)
   }
 
-  // Check if it's a shape
+  // Check for bitmap-fill shapes BEFORE regular shapes — a DefineShape with a
+  // bitmap fill should render as a shape layer with the bitmap clipped to the
+  // shape outline, not as a full rectangular image layer (which shows white corners).
+  const charTag = characters.get(charId)
+  if (charTag) {
+    const tagType = getTagType(charTag)
+
+    if (tagType.includes('DefineText')) {
+      return buildTextLayer(charTag, placement, fonts)
+    }
+
+    if (tagType.includes('DefineShape')) {
+      const bitmapFill = findBitmapFill(charTag)
+      if (bitmapFill) {
+        const bitmapAsset = imageAssets.get(bitmapFill.bitmapId)
+        if (bitmapAsset) {
+          // Check if we have the shape outline from SVG extraction
+          const shapeOutline = shapeAssets.get(charId)
+          if (shapeOutline && shapeOutline.shapeData.paths.length > 0) {
+            // Build shape layer with bitmap fill — the shape outline clips the image
+            const shapeDataWithBitmap = {
+              ...shapeOutline.shapeData,
+              paths: shapeOutline.shapeData.paths.map((p) => ({
+                ...p,
+                // Replace hasBitmapFill marker with actual asset ID
+                bitmapFillAssetId: p.hasBitmapFill ? bitmapAsset.id : undefined,
+                hasBitmapFill: undefined
+              }))
+            }
+            return buildShapeLayer('Shape ' + charId, shapeDataWithBitmap, placement)
+          }
+
+          // Fallback: no shape outline available — render as image layer
+          const centerOffsetX = bitmapFill.offsetX + bitmapAsset.width / 2
+          const centerOffsetY = bitmapFill.offsetY + bitmapAsset.height / 2
+          return buildImageLayer(
+            'Image ' + bitmapFill.bitmapId,
+            bitmapAsset.id,
+            placement,
+            centerOffsetX,
+            centerOffsetY
+          )
+        }
+      }
+    }
+  }
+
+  // Check if it's a regular shape (no bitmap fill)
   const shapeAsset = shapeAssets.get(charId)
   if (shapeAsset) {
     return buildShapeLayer('Shape ' + charId, shapeAsset.shapeData, placement)
   }
 
-  // Check if it's a text tag
-  const charTag = characters.get(charId)
-  if (charTag) {
-    const tagType = getTagType(charTag)
-    if (tagType.includes('DefineText')) {
-      return buildTextLayer(charTag, placement, fonts)
+  return null
+}
+
+/**
+ * Search a DefineShapeTag for a bitmap fill style.
+ * Returns the bitmapId and the bitmapMatrix translation (twips → pixels).
+ */
+function findBitmapFill(shapeTag: any): { bitmapId: number; offsetX: number; offsetY: number } | null {
+  const shapes = shapeTag.shapes || {}
+  const fillStyles = shapes.fillStyles || {}
+  const fills = fillStyles.fillStyles
+  if (!fills) return null
+
+  const fillList = Array.isArray(fills) ? fills : fills.item ? (Array.isArray(fills.item) ? fills.item : [fills.item]) : []
+  for (const fill of fillList) {
+    const fillType = attr(fill, 'fillStyleType')
+    // fillStyleType 64-67 = bitmap fills (clipped/tiled, smoothed/unsmoothed)
+    if (fillType !== undefined && fillType >= 64 && fillType <= 67) {
+      const bId = attr(fill, 'bitmapId')
+      if (bId !== undefined && bId !== 65535) {
+        const bitmapMatrix = fill.bitmapMatrix
+        const offsetX = bitmapMatrix ? ((attr(bitmapMatrix, 'translateX') ?? 0) as number) / 20 : 0
+        const offsetY = bitmapMatrix ? ((attr(bitmapMatrix, 'translateY') ?? 0) as number) / 20 : 0
+        return { bitmapId: bId, offsetX, offsetY }
+      }
     }
   }
-
   return null
 }
 
 function buildImageLayer(
   name: string,
   assetId: string,
-  placement: PlacementData
+  placement: PlacementData,
+  centerOffsetX = 0,
+  centerOffsetY = 0
 ): LayerResult {
+  // Apply center offset to position keyframes so the image sprite (anchor 0.5, 0.5)
+  // appears at the correct location on stage
+  const adjustedFrames = (centerOffsetX || centerOffsetY)
+    ? placement.frames.map((f) => ({
+        frame: f.frame,
+        matrix: {
+          ...f.matrix,
+          tx: f.matrix.tx + centerOffsetX,
+          ty: f.matrix.ty + centerOffsetY
+        }
+      }))
+    : placement.frames
+
   return {
     id: nanoid(),
     name,
@@ -314,7 +405,7 @@ function buildImageLayer(
     order: 0,
     startFrame: placement.startFrame,
     endFrame: placement.endFrame,
-    tracks: buildTracks(placement.frames)
+    tracks: buildTracks(adjustedFrames)
   }
 }
 
@@ -342,35 +433,34 @@ function buildTextLayer(
   placement: PlacementData,
   fonts: Map<number, FontInfo>
 ): LayerResult | null {
-  // Extract text content from DefineText records
-  const records = textTag.records || textTag.Records || textTag.textRecords || []
+  const records = textTag.textRecords || textTag.records || {}
   let text = ''
   let fontName = 'Arial'
   let color = '#000000'
   let fontSize = 24
 
-  const recList = Array.isArray(records) ? records : [records]
+  const recList = normalizeItemList(records)
   for (const rec of recList) {
-    const fontId = getNum(rec, 'fontId') ?? getNum(rec, 'FontId')
+    const fontId = attr(rec, 'fontId') ?? attr(rec, 'styleFontId')
     if (fontId !== undefined) {
       const font = fonts.get(fontId)
       if (font) fontName = font.name || 'Arial'
-      fontSize = (getNum(rec, 'textHeight') || getNum(rec, 'fontSize') || 480) / 20
+      fontSize = ((attr(rec, 'textHeight') ?? attr(rec, 'styleTextHeight')) || 480) / 20
     }
 
-    const colorNode = rec.textColor || rec.TextColor || rec.color
+    const colorNode = rec.textColor || rec.styleTextColor || rec.color
     if (colorNode) {
-      const r = getNum(colorNode, 'red') ?? getNum(colorNode, 'r') ?? 0
-      const g = getNum(colorNode, 'green') ?? getNum(colorNode, 'g') ?? 0
-      const b = getNum(colorNode, 'blue') ?? getNum(colorNode, 'b') ?? 0
+      const r = attr(colorNode, 'red') ?? 0
+      const g = attr(colorNode, 'green') ?? 0
+      const b = attr(colorNode, 'blue') ?? 0
       color = rgbToHex(r, g, b)
     }
 
-    const glyphs = rec.glyphEntries || rec.GlyphEntries || rec.entries || []
-    const glyphList = Array.isArray(glyphs) ? glyphs : [glyphs]
+    const glyphs = rec.glyphEntries || rec.entries || {}
+    const glyphList = normalizeItemList(glyphs)
     const fontInfo = fontId !== undefined ? fonts.get(fontId) : null
     for (const glyph of glyphList) {
-      const idx = getNum(glyph, 'glyphIndex') ?? getNum(glyph, 'index') ?? -1
+      const idx = attr(glyph, 'glyphIndex') ?? attr(glyph, 'index') ?? -1
       if (fontInfo && fontInfo.codeUnits && idx >= 0 && idx < fontInfo.codeUnits.length) {
         text += String.fromCharCode(fontInfo.codeUnits[idx])
       }
@@ -469,7 +559,32 @@ function addVisibilityKeyframes(
   layer.endFrame = totalFrames - 1
 }
 
+// ── Matrix Parsing ────────────────────────────────────────────────────────
+
+function parseMatrixNode(node: any): Matrix2D {
+  // swf2xml format: <matrix type="MATRIX" hasScale="true" scaleX="1.0" scaleY="1.0"
+  //   hasRotate="false" rotateSkew0="0.0" rotateSkew1="0.0"
+  //   translateX="17361" translateY="7669" />
+  const hasScale = attr(node, 'hasScale') === true
+  const hasRotate = attr(node, 'hasRotate') === true
+
+  return {
+    a: hasScale ? (attr(node, 'scaleX') ?? 1) : 1,
+    b: hasRotate ? (attr(node, 'rotateSkew0') ?? 0) : 0,
+    c: hasRotate ? (attr(node, 'rotateSkew1') ?? 0) : 0,
+    d: hasScale ? (attr(node, 'scaleY') ?? 1) : 1,
+    tx: ((attr(node, 'translateX') ?? 0) as number) / 20,
+    ty: ((attr(node, 'translateY') ?? 0) as number) / 20
+  }
+}
+
 // ── XML Helpers ────────────────────────────────────────────────────────────
+
+interface FontInfo {
+  id: number
+  name: string
+  codeUnits: number[]
+}
 
 function normalizeTagList(tagsNode: any): any[] {
   if (Array.isArray(tagsNode)) return tagsNode
@@ -477,62 +592,42 @@ function normalizeTagList(tagsNode: any): any[] {
   return []
 }
 
+function normalizeItemList(node: any): any[] {
+  if (Array.isArray(node)) return node
+  if (node?.item) return Array.isArray(node.item) ? node.item : [node.item]
+  return []
+}
+
 function getTagType(tag: any): string {
-  return tag['@_type'] || tag.type || tag.tagType || tag.TagType || ''
+  return tag['@_type'] || tag.type || ''
 }
 
-function getCharacterId(tag: any): number | undefined {
-  const v = tag.characterId ?? tag.CharacterId ?? tag['@_characterId']
-  return v !== undefined ? Number(v) : undefined
-}
-
-function getNum(obj: any, key: string): number | undefined {
-  const v = obj?.[key] ?? obj?.[key.charAt(0).toUpperCase() + key.slice(1)]
-  return v !== undefined ? Number(v) : undefined
-}
-
-function getBool(obj: any, key: string): boolean {
-  const v = obj?.[key] ?? obj?.[key.charAt(0).toUpperCase() + key.slice(1)]
-  return v === true || v === 'true' || v === 1
-}
-
-function parseMatrixNode(node: any): Matrix2D {
-  // JPEXS dumpSWF uses various matrix formats
-  // Could be nested: <matrix><Matrix scaleX="1.0" .../></matrix>
-  // Or flat: {scaleX: 1.0, translateX: 100, ...}
-  const inner = node.Matrix || node.matrix || node
-  return {
-    a: parseFloat(inner.scaleX ?? inner.ScaleX ?? inner['@_scaleX'] ?? '1') || 1,
-    b: parseFloat(
-      inner.rotateSkew0 ?? inner.RotateSkew0 ?? inner['@_rotateSkew0'] ?? '0'
-    ) || 0,
-    c: parseFloat(
-      inner.rotateSkew1 ?? inner.RotateSkew1 ?? inner['@_rotateSkew1'] ?? '0'
-    ) || 0,
-    d: parseFloat(inner.scaleY ?? inner.ScaleY ?? inner['@_scaleY'] ?? '1') || 1,
-    tx:
-      (parseFloat(
-        inner.translateX ?? inner.TranslateX ?? inner['@_translateX'] ?? '0'
-      ) || 0) / 20,
-    ty:
-      (parseFloat(
-        inner.translateY ?? inner.TranslateY ?? inner['@_translateY'] ?? '0'
-      ) || 0) / 20
-  }
+/**
+ * Read an attribute from a parsed XML node.
+ * fast-xml-parser with attributeNamePrefix='@_' stores attributes as @_name.
+ */
+function attr(obj: any, key: string): any {
+  if (!obj) return undefined
+  // Try @_prefixed (attribute)
+  const v = obj['@_' + key]
+  if (v !== undefined) return v
+  // Try plain (child element or parseAttributeValue result)
+  return obj[key]
 }
 
 function parseFontTag(tag: any, charId: number): FontInfo | null {
-  const name =
-    tag.fontName || tag.FontName || tag.fontFamilyName || tag.FontFamilyName || 'Unknown'
+  const name = attr(tag, 'fontName') ?? attr(tag, 'fontFamilyName') ?? 'Unknown'
 
-  // Extract code units (character mappings)
-  const codeTable = tag.codeTable || tag.CodeTable || []
+  const codeTable = tag.codeTable || {}
+  const codeItems = normalizeItemList(codeTable)
   const codeUnits: number[] = []
-  if (Array.isArray(codeTable)) {
-    for (const code of codeTable) {
-      codeUnits.push(typeof code === 'number' ? code : parseInt(code, 10))
-    }
+  for (const code of codeItems) {
+    codeUnits.push(typeof code === 'number' ? code : parseInt(code, 10))
   }
 
   return { id: charId, name: String(name), codeUnits }
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')
 }

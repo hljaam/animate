@@ -1,0 +1,36 @@
+## Feature 2: Command Console
+
+The editor includes a command console that lets users perform editing actions through typed commands.
+
+### User Value
+This enables fast, keyboard-first workflows for repetitive or precise editing tasks such as adding layers, moving layers, changing properties, and controlling the timeline.
+
+### V1 Scope
+- open console with Cmd/Ctrl + K
+- structured command input
+- autocomplete and suggestions
+- command history
+- inline error messages
+- all command execution routed through the same internal action/undo system as mouse and toolbar actions
+
+### Supported V1 Commands
+- add image <assetName>
+- add text "content"
+- select <layerName>
+- move <target> x <number> y <number>
+- scale <target> <number>
+- rotate <target> <number>
+- opacity <target> <0-100>
+- frame <number>
+- keyframe <target> <property>
+- duplicate <target>
+- delete <target>
+- hide <target>
+- lock <target>
+- export mp4
+
+### Design Rules
+- command results must be undoable
+- commands should resolve targets by layer name or selection
+- ambiguous targets must show a disambiguation prompt
+- invalid commands must provide corrective suggestions

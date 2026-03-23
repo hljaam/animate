@@ -1,10 +1,14 @@
 import { create } from 'zustand'
+import { produce, produceWithPatches, enablePatches } from 'immer'
 import type { Project, Layer, Asset, PropertyTrack, TrackProperty, EasingType, Keyframe, SymbolDef } from '../types/project'
 import { CommandHistory } from './commands/Command'
+
+enablePatches()
 
 interface ProjectState {
   project: Project | null
   history: CommandHistory
+  historyVersion: number
 
   // Project-level
   setProject: (project: Project) => void
@@ -13,26 +17,35 @@ interface ProjectState {
   // Assets
   addAsset: (asset: Asset) => void
 
-  // Layer operations (direct - called by commands)
-  addLayerDirect: (layer: Layer) => void
-  removeLayerDirect: (layerId: string) => void
+  // Undoable action — wraps any project mutation with Immer patches
+  applyAction: (description: string, mutator: (draft: Project) => void) => void
+
+  // Non-undoable direct mutation (for live drag, etc.)
+  mutateProject: (mutator: (draft: Project) => void) => void
+
+  // Convenience: updateLayer without undo (for live UI changes like name, visibility, lock)
   updateLayer: (layerId: string, changes: Partial<Layer>) => void
-
-  // Keyframe operations (direct - called by commands)
-  setKeyframeDirect: (layerId: string, property: TrackProperty, frame: number, value: number, easing: EasingType) => void
-  removeKeyframeDirect: (layerId: string, property: TrackProperty, frame: number) => void
-
-  // Symbol operations (direct - called by commands)
-  addSymbolDirect: (symbol: SymbolDef) => void
-  removeSymbolDirect: (symbolId: string) => void
 
   // Computed helpers
   getLayer: (layerId: string) => Layer | undefined
 }
 
-export const useProjectStore = create<ProjectState>((set, get) => ({
+const _history = new CommandHistory()
+
+export const useProjectStore = create<ProjectState>((set, get) => {
+  _history.setOnChanged(() => {
+    set({ historyVersion: _history.version })
+  })
+
+  _history.setProjectAccessors(
+    () => get().project,
+    (project) => set({ project })
+  )
+
+  return {
   project: null,
-  history: new CommandHistory(),
+  history: _history,
+  historyVersion: 0,
 
   setProject: (project) => {
     get().history.clear()
@@ -53,24 +66,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })
   },
 
-  addLayerDirect: (layer) => {
-    set((state) => {
-      if (!state.project) return state
-      const layers = [...state.project.layers, layer].sort((a, b) => a.order - b.order)
-      return { project: { ...state.project, layers } }
-    })
+  applyAction: (description, mutator) => {
+    const project = get().project
+    if (!project) return
+    const [nextState, patches, inversePatches] = produceWithPatches(project, mutator)
+    if (patches.length === 0) return // no-op
+    set({ project: nextState })
+    _history.pushPatches(description, patches, inversePatches)
   },
 
-  removeLayerDirect: (layerId) => {
-    set((state) => {
-      if (!state.project) return state
-      return {
-        project: {
-          ...state.project,
-          layers: state.project.layers.filter((l) => l.id !== layerId)
-        }
-      }
-    })
+  mutateProject: (mutator) => {
+    const project = get().project
+    if (!project) return
+    const next = produce(project, mutator)
+    set({ project: next })
   },
 
   updateLayer: (layerId, changes) => {
@@ -85,82 +94,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })
   },
 
-  setKeyframeDirect: (layerId, property, frame, value, easing) => {
-    set((state) => {
-      if (!state.project) return state
-      const layers = state.project.layers.map((layer) => {
-        if (layer.id !== layerId) return layer
-
-        let tracks = layer.tracks
-        const trackIndex = tracks.findIndex((t) => t.property === property)
-
-        if (trackIndex === -1) {
-          // Create new track
-          const newTrack: PropertyTrack = {
-            property,
-            keyframes: [{ frame, value, easing }]
-          }
-          tracks = [...tracks, newTrack]
-        } else {
-          // Update or insert keyframe in existing track
-          const track = tracks[trackIndex]
-          const kfIndex = track.keyframes.findIndex((kf) => kf.frame === frame)
-          let keyframes: Keyframe[]
-
-          if (kfIndex === -1) {
-            keyframes = [...track.keyframes, { frame, value, easing }].sort((a, b) => a.frame - b.frame)
-          } else {
-            keyframes = track.keyframes.map((kf, i) =>
-              i === kfIndex ? { frame, value, easing } : kf
-            )
-          }
-
-          tracks = tracks.map((t, i) => (i === trackIndex ? { ...t, keyframes } : t))
-        }
-
-        return { ...layer, tracks }
-      })
-
-      return { project: { ...state.project, layers } }
-    })
-  },
-
-  removeKeyframeDirect: (layerId, property, frame) => {
-    set((state) => {
-      if (!state.project) return state
-      const layers = state.project.layers.map((layer) => {
-        if (layer.id !== layerId) return layer
-        const tracks = layer.tracks.map((track) => {
-          if (track.property !== property) return track
-          return { ...track, keyframes: track.keyframes.filter((kf) => kf.frame !== frame) }
-        })
-        return { ...layer, tracks }
-      })
-      return { project: { ...state.project, layers } }
-    })
-  },
-
-  addSymbolDirect: (symbol) => {
-    set((state) => {
-      if (!state.project) return state
-      const symbols = [...(state.project.symbols || []), symbol]
-      return { project: { ...state.project, symbols } }
-    })
-  },
-
-  removeSymbolDirect: (symbolId) => {
-    set((state) => {
-      if (!state.project) return state
-      return {
-        project: {
-          ...state.project,
-          symbols: (state.project.symbols || []).filter((s) => s.id !== symbolId)
-        }
-      }
-    })
-  },
-
   getLayer: (layerId) => {
     return get().project?.layers.find((l) => l.id === layerId)
   }
-}))
+}})

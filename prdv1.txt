@@ -1,0 +1,33 @@
+## Added V1 Feature: Editor Zoom & Pan
+The stage supports viewport zooming for precise editing.
+
+### Behavior
+- zoom in/out via toolbar buttons, dropdown, and Ctrl/Cmd + mouse wheel
+- zoom centered on cursor
+- fit-to-screen and 100% shortcuts
+- pan via space + drag or middle mouse drag
+- zoom affects editor viewport only, not export resolution
+
+### Viewport State
+type ViewportState = {
+  zoom: number;
+  panX: number;
+  panY: number;
+};
+
+## Added Performance Principle
+The app must maintain responsive editing and smooth playback for common projects.
+
+### Performance Rules
+- React does not drive per-frame animation updates
+- PixiJS handles real-time stage rendering
+- playback uses a separate runtime engine
+- image textures are cached and reused
+- only visible/in-range layers are evaluated
+- export runs outside the main UI thread
+
+### Performance Targets
+- responsive editing interactions
+- smooth preview for standard 1080p projects
+- stable playback with transform-based animation
+- non-blocking MP4 export with progress feedback

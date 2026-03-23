@@ -1,0 +1,31 @@
+<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Symbol 9" lastModified="1774084426" symbolType="graphic">
+     <timeline>
+          <DOMTimeline name="Symbol 9" currentFrame="0">
+               <layers>
+                    <DOMLayer name="Layer 1">
+                         <frames>
+                              <DOMFrame index="0" motionTweenScale="false" keyMode="8192">
+                                   <elements>
+                                        <DOMShape isFloating="true">
+                                             <fills>
+                                                  <FillStyle index="1">
+                                                       <BitmapFill bitmapPath="Bitmap 8.jpg">
+                                                            <matrix>
+                                                                 <Matrix tx="-3.65" ty="-3.25" a="20.0" d="20.0"/>
+                                                            </matrix>
+                                                       </BitmapFill>
+                                                  </FillStyle>
+                                             </fills>
+                                             <strokes/>
+                                             <edges>
+                                                  <Edge fillStyle0="0" fillStyle1="1" strokeStyle="0" edges="! 65 447| 65 401| 140 271| 157 257| 170 218| 189 205| 229 152[ 289 113 366 80| 406 74[ 534 16 688 -6| 727 -12[ 975 -36 1244 -25[ 1462 -19 1638 34| 1695 47[ 1709 52 1736 47[ 1746 68 1754 63[ 1765 58 1769 67| 1795 67| 1952 113[ 1948 128 1953 132[ 1963 142 1978 139| 1992 165| 1998 200[ 2003 215 2018 218| 2064 342| 2061 371[ 2065 391 2083 388| 2090 447| 2110 480| 2123 578| 2136 591[ 2144 682 2118 754| 2110 788| 2096 801[ 2074 861 2058 916[ 2050 941 2031 945| 1964 1425| 1919 1758| 1810 1982[ 1801 1999 1788 2000[ 1708 2147 1597 2294| 1585 2321| 1566 2328[ 1557 2350 1532 2358[ 1518 2362 1513 2374| 1467 2380| 1454 2394[ 1204 2402 951 2381[ 876 2385 799 2380[ 770 2366 732 2360| 694 2354[ 641 2336 602 2313[ 584 2302 583 2282| 497 2217| 491 2197[ 435 2169 382 2122[ 371 2111 373 2099| 353 2092| 347 2072| 320 2066| 268 2013| 229 1994| 182 1879[ 175 1864 163 1856| 157 1830| 143 1817| 124 1764[ 90 1516 103 1260[ 111 1093 111 926| 98 906| 94 847[ 91 821 78 814[ 79 642 60 492[ 57 466 65 447"/>
+                                             </edges>
+                                        </DOMShape>
+                                   </elements>
+                              </DOMFrame>
+                         </frames>
+                    </DOMLayer>
+               </layers>
+          </DOMTimeline>
+     </timeline>
+</DOMSymbolItem>

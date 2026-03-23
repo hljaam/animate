@@ -13,6 +13,9 @@ const RULER_HEIGHT = 24
 export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: Props): React.ReactElement {
   const { currentFrame, setCurrentFrame, setIsPlaying } = useEditorStore()
   const project = useProjectStore((s) => s.project)
+  const onionSkinEnabled = useEditorStore((s) => s.onionSkinEnabled)
+  const onionSkinBefore = useEditorStore((s) => s.onionSkinBefore)
+  const onionSkinAfter = useEditorStore((s) => s.onionSkinAfter)
   const rulerRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
 
@@ -59,7 +62,7 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
           top: isMajor ? 8 : 14,
           width: 1,
           height: isMajor ? 16 : 10,
-          background: isMajor ? '#888' : '#666'
+          background: isMajor ? 'var(--text-muted)' : 'var(--border)'
         }}
       />,
       isMajor && (
@@ -70,7 +73,7 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
             left: x + 2,
             top: 4,
             fontSize: 10,
-            color: '#aaa',
+            color: 'var(--text-secondary)',
             fontFamily: 'monospace',
             pointerEvents: 'none'
           }}
@@ -83,6 +86,74 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
 
   // Playhead
   const playheadX = labelOffset + currentFrame * pixelsPerFrame
+
+  // Onion skin range
+  const onionElements: React.ReactNode[] = []
+  if (onionSkinEnabled) {
+    const beforeStart = Math.max(0, currentFrame - onionSkinBefore)
+    const afterEnd = Math.min(totalFrames - 1, currentFrame + onionSkinAfter)
+    // Green (before) range
+    if (onionSkinBefore > 0 && beforeStart < currentFrame) {
+      const left = labelOffset + beforeStart * pixelsPerFrame
+      const width = (currentFrame - beforeStart) * pixelsPerFrame
+      onionElements.push(
+        <div key="onion-before" style={{
+          position: 'absolute', left, top: RULER_HEIGHT - 4, height: 3, width,
+          background: 'rgba(74, 222, 128, 0.5)', borderRadius: 1, pointerEvents: 'none'
+        }} />
+      )
+    }
+    // Blue (after) range
+    if (onionSkinAfter > 0 && afterEnd > currentFrame) {
+      const left = labelOffset + currentFrame * pixelsPerFrame
+      const width = (afterEnd - currentFrame) * pixelsPerFrame
+      onionElements.push(
+        <div key="onion-after" style={{
+          position: 'absolute', left, top: RULER_HEIGHT - 4, height: 3, width,
+          background: 'rgba(96, 165, 250, 0.5)', borderRadius: 1, pointerEvents: 'none'
+        }} />
+      )
+    }
+  }
+
+  // Frame labels
+  const frameLabels = project?.frameLabels
+  const labelElements: React.ReactNode[] = []
+  if (frameLabels) {
+    for (const [frameStr, label] of Object.entries(frameLabels)) {
+      const f = parseInt(frameStr)
+      if (isNaN(f) || f < 0 || f >= totalFrames) continue
+      const x = labelOffset + f * pixelsPerFrame
+      labelElements.push(
+        <div key={`flabel-${f}`} style={{
+          position: 'absolute',
+          left: x,
+          top: 0,
+          fontSize: 8,
+          color: '#f59e0b',
+          fontWeight: 600,
+          pointerEvents: 'none',
+          whiteSpace: 'nowrap',
+          transform: 'translateX(-50%)'
+        }}>
+          {label}
+        </div>
+      )
+      // Small flag marker
+      labelElements.push(
+        <div key={`flag-${f}`} style={{
+          position: 'absolute',
+          left: x - 1,
+          top: RULER_HEIGHT - 8,
+          width: 3,
+          height: 6,
+          background: '#f59e0b',
+          borderRadius: 1,
+          pointerEvents: 'none'
+        }} />
+      )
+    }
+  }
 
   return (
     <div
@@ -99,6 +170,8 @@ export default function TimeRuler({ pixelsPerFrame, totalFrames, labelOffset }: 
       }}
     >
       {ticks}
+      {onionElements}
+      {labelElements}
 
       {/* Playhead indicator */}
       <div
