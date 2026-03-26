@@ -606,8 +606,6 @@ export class StageRenderer {
         : 0
 
     // Render symbol's internal layers into this container
-    // For now, just render shapes/images from the symbol's first frame
-    // Full recursive rendering would require refactoring render methods to accept target container
     for (const symLayer of symbolDef.layers) {
       if (!symLayer.visible) continue
       if (internalFrame < symLayer.startFrame || internalFrame > symLayer.endFrame) continue
@@ -673,6 +671,76 @@ export class StageRenderer {
         sprite.scale.set(symProps.scaleX, symProps.scaleY)
         sprite.rotation = symProps.rotation
         sprite.alpha = symProps.opacity
+      } else if (symLayer.type === 'text' && symLayer.textData) {
+        let text = this.textCache.get(cacheKey)
+        if (!text) {
+          text = new PIXI.Text({
+            text: symLayer.textData.text,
+            style: {
+              fontFamily: symLayer.textData.font ?? 'Arial',
+              fontSize: symLayer.textData.size ?? 36,
+              fill: symLayer.textData.color ?? '#ffffff'
+            }
+          })
+          text.anchor.set(0.5, 0.5)
+          this.textCache.set(cacheKey, text)
+          container.addChild(text)
+        }
+        // Update text content/style in case it changed
+        text.text = symLayer.textData.text
+        const style = text.style as PIXI.TextStyle
+        style.fontFamily = symLayer.textData.font ?? 'Arial'
+        style.fontSize = symLayer.textData.size ?? 36
+        style.fill = symLayer.textData.color ?? '#ffffff'
+
+        text.visible = true
+        text.x = symProps.x
+        text.y = symProps.y
+        text.scale.set(symProps.scaleX, symProps.scaleY)
+        text.rotation = symProps.rotation
+        text.alpha = symProps.opacity
+      } else if (symLayer.type === 'symbol' && symLayer.symbolId && project.symbols) {
+        // Recursive nested symbol rendering (with depth guard)
+        const nestedSymbolDef = project.symbols.find((s) => s.id === symLayer.symbolId)
+        if (nestedSymbolDef) {
+          const depth = (layer as any)._symbolDepth ?? 0
+          if (depth < 8) {
+            // Create a sub-container for the nested symbol
+            let nestedContainer = this.layerContainers.get(cacheKey)
+            if (!nestedContainer) {
+              nestedContainer = new PIXI.Container()
+              this.layerContainers.set(cacheKey, nestedContainer)
+              container.addChild(nestedContainer)
+            }
+            nestedContainer.visible = true
+            nestedContainer.x = symProps.x
+            nestedContainer.y = symProps.y
+            nestedContainer.scale.set(symProps.scaleX, symProps.scaleY)
+            nestedContainer.rotation = symProps.rotation
+            nestedContainer.alpha = symProps.opacity
+
+            // Calculate nested symbol's internal frame
+            const nestedInternalFrame =
+              nestedSymbolDef.durationFrames > 0
+                ? (internalFrame - symLayer.startFrame) % nestedSymbolDef.durationFrames
+                : 0
+
+            // Tag the synthetic layer with depth to prevent infinite recursion
+            const syntheticLayer = {
+              ...symLayer,
+              id: cacheKey,
+              _symbolDepth: depth + 1
+            } as Layer & { _symbolDepth: number }
+
+            this.renderSymbolLayer(
+              syntheticLayer,
+              nestedSymbolDef,
+              project,
+              nestedInternalFrame + symLayer.startFrame,
+              symProps
+            )
+          }
+        }
       }
     }
   }

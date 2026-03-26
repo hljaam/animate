@@ -417,7 +417,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     borderTop: '1px solid var(--border)',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    height: '100%'
   },
   toolbar: {
     display: 'flex',

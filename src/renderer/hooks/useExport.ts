@@ -44,6 +44,7 @@ export function useExport() {
         const pixelsArray = Array.from(pixels)
 
         await api.exportFrame({
+          projectId: project.id,
           frame,
           pixels: pixelsArray,
           width: project.width,

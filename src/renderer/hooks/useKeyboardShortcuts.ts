@@ -95,52 +95,39 @@ export function useKeyboardShortcuts(): void {
 
       // Space is handled by StageContainer (hold=pan, tap=play toggle)
 
-      // F5 — Insert Frame (extend span, shift keyframes)
-      // Shift+F5 — Remove Frame (shrink span, shift keyframes back)
+      // F5 — Insert Frame (extend selected layers by 1)
+      // Shift+F5 — Remove Frame (shrink selected layers by 1)
       if (e.key === 'F5') {
         e.preventDefault()
         const project = useProjectStore.getState().project
         if (!project || selectedLayerIds.length === 0) return
 
         if (e.shiftKey) {
-          // Shift+F5 — Remove Frame
           useProjectStore.getState().applyAction('Remove frame', (draft) => {
             for (const layerId of selectedLayerIds) {
               const layer = draft.layers.find((l) => l.id === layerId)
               if (!layer) continue
-              for (const track of layer.tracks) {
-                track.keyframes = track.keyframes.filter((kf) => kf.frame !== currentFrame)
-                for (const kf of track.keyframes) {
-                  if (kf.frame > currentFrame) kf.frame -= 1
-                }
-              }
               if (layer.endFrame > layer.startFrame) layer.endFrame -= 1
+              for (const track of layer.tracks) {
+                track.keyframes = track.keyframes.filter((kf) => kf.frame <= layer.endFrame)
+              }
             }
           })
         } else {
-          // F5 — Insert Frame
           useProjectStore.getState().applyAction('Insert frame', (draft) => {
             for (const layerId of selectedLayerIds) {
               const layer = draft.layers.find((l) => l.id === layerId)
               if (!layer) continue
-              for (const track of layer.tracks) {
-                for (const kf of track.keyframes) {
-                  if (kf.frame > currentFrame) kf.frame += 1
-                }
-              }
               layer.endFrame += 1
             }
-            // Extend project duration if needed
             const maxEnd = Math.max(...draft.layers.map((l) => l.endFrame))
-            if (maxEnd >= draft.durationFrames) {
-              draft.durationFrames = maxEnd + 1
-            }
+            if (maxEnd >= draft.durationFrames) draft.durationFrames = maxEnd + 1
           })
         }
         return
       }
 
-      // F6 — Insert Keyframe (duplicate current interpolated values)
+      // F6 — Insert Keyframe on selected layer, extend it to cover this frame
       if (e.key === 'F6') {
         e.preventDefault()
         const project = useProjectStore.getState().project
@@ -148,12 +135,9 @@ export function useKeyboardShortcuts(): void {
         const layerId = selectedLayerIds[0]
         const layer = project.layers.find((l) => l.id === layerId)
         if (!layer) return
-        // Check if keyframes already exist at this frame
         const hasKf = layer.tracks.some((t) => t.keyframes.some((k) => k.frame === currentFrame))
         if (hasKf) return
-        // Get interpolated values at current frame
         const interpolated = getInterpolatedProps(layer.tracks, currentFrame, DEFAULT_LAYER_PROPS)
-        // Inherit easing from the span we're splitting
         let inheritEasing: EasingType = DEFAULT_EASING
         for (const track of layer.tracks) {
           const before = [...track.keyframes]
@@ -176,11 +160,14 @@ export function useKeyboardShortcuts(): void {
             track.keyframes.push({ frame: currentFrame, value: interpolated[prop], easing: inheritEasing })
             track.keyframes.sort((a, b) => a.frame - b.frame)
           }
+          if (draftLayer.endFrame < currentFrame + 1) draftLayer.endFrame = currentFrame + 1
+          const maxEnd = Math.max(...draft.layers.map((l) => l.endFrame))
+          if (maxEnd >= draft.durationFrames) draft.durationFrames = maxEnd + 1
         })
         return
       }
 
-      // F7 — Insert Blank Keyframe (default values)
+      // F7 — Insert Blank Keyframe on selected layer, extend it to cover this frame
       if (e.key === 'F7') {
         e.preventDefault()
         const project = useProjectStore.getState().project
@@ -195,11 +182,13 @@ export function useKeyboardShortcuts(): void {
               track = { property: prop, keyframes: [] }
               draftLayer.tracks.push(track)
             }
-            // Remove existing keyframe at this frame if any
             track.keyframes = track.keyframes.filter((k) => k.frame !== currentFrame)
             track.keyframes.push({ frame: currentFrame, value: DEFAULT_LAYER_PROPS[prop], easing: DEFAULT_EASING })
             track.keyframes.sort((a, b) => a.frame - b.frame)
           }
+          if (draftLayer.endFrame < currentFrame + 1) draftLayer.endFrame = currentFrame + 1
+          const maxEnd = Math.max(...draft.layers.map((l) => l.endFrame))
+          if (maxEnd >= draft.durationFrames) draft.durationFrames = maxEnd + 1
         })
         return
       }

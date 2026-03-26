@@ -3,6 +3,10 @@ import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { generateId } from '../../utils/idGenerator'
 import type { ShapePath, ShapeSegment, ShapeObjectDef, ShapeData, PropertyTrack, Layer, SymbolDef } from '../../types/project'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
 
 /** Offset all x/y coordinates in a segment by (dx, dy) */
 function offsetSegment(seg: ShapeSegment, dx: number, dy: number): ShapeSegment {
@@ -49,7 +53,7 @@ export default function CreateObjectDialog(): React.ReactElement {
       paths: ShapePath[]
       originX: number
       originY: number
-      worldX: number  // layer position from tracks
+      worldX: number
       worldY: number
     }
     const layerInfos: LayerInfo[] = []
@@ -58,7 +62,6 @@ export default function CreateObjectDialog(): React.ReactElement {
       const layer = project.layers.find((l) => l.id === layerId)
       if (!layer) continue
 
-      // Get layer world position from tracks
       const xTrack = layer.tracks.find((t) => t.property === 'x')
       const yTrack = layer.tracks.find((t) => t.property === 'y')
       const worldX = xTrack?.keyframes[0]?.value ?? 0
@@ -112,12 +115,9 @@ export default function CreateObjectDialog(): React.ReactElement {
 
     if (layerInfos.length === 0) return
 
-    // Compute bounding box of all layers in world space
-    // Each layer's world top-left = (worldX - originX, worldY - originY)
     let minWX = Infinity, minWY = Infinity
     let maxWX = -Infinity, maxWY = -Infinity
     for (const info of layerInfos) {
-      // Compute world-space bounds from path segments
       const topLeftX = info.worldX - info.originX
       const topLeftY = info.worldY - info.originY
       for (const path of info.paths) {
@@ -150,17 +150,11 @@ export default function CreateObjectDialog(): React.ReactElement {
       }
     }
 
-    // Combined object center in world space
     const centerWX = (minWX + maxWX) / 2
     const centerWY = (minWY + maxWY) / 2
-    // Combined origin = center relative to the combined top-left
     const combinedOriginX = centerWX - minWX
     const combinedOriginY = centerWY - minWY
 
-    // Second pass: offset each layer's paths so they're in the combined local coordinate space
-    // Combined local coords: world point (wx, wy) → local (wx - minWX, wy - minWY)
-    // Layer's path segment (px, py) is in local coords where world = topLeftX + px
-    // So combined local = topLeftX + px - minWX → offset = topLeftX - minWX
     const allPaths: ShapePath[] = []
     for (const info of layerInfos) {
       const topLeftX = info.worldX - info.originX
@@ -172,7 +166,6 @@ export default function CreateObjectDialog(): React.ReactElement {
       }
     }
 
-    // Collect the source layers (no deep clone yet — clone only where needed)
     const sourceLayers = dialogData.layerIds
       .map((id) => project.layers.find((l) => l.id === id))
       .filter((l): l is NonNullable<typeof l> => !!l)
@@ -180,7 +173,6 @@ export default function CreateObjectDialog(): React.ReactElement {
     const objectStartFrame = Math.min(...sourceLayers.map((l) => l.startFrame))
     const objectEndFrame = Math.max(...sourceLayers.map((l) => l.endFrame))
 
-    // Check if multiple layers have independent animation (more than 1 keyframe on position tracks)
     const hasIndependentAnimation = sourceLayers.length > 1 && sourceLayers.some((l) => {
       const xTrack = l.tracks.find((t) => t.property === 'x')
       const yTrack = l.tracks.find((t) => t.property === 'y')
@@ -190,10 +182,7 @@ export default function CreateObjectDialog(): React.ReactElement {
     const replacementLayerId = generateId()
 
     if (hasIndependentAnimation) {
-      // Create a symbol so each inner layer keeps its independent animation.
-      // Resolve symbol layers: pull inner shape layers out of nested symbols.
       const innerLayers: Layer[] = []
-      // Track which original symbol IDs are consumed so we can remove orphans
       const consumedSymbolIds: string[] = []
 
       for (const sl of sourceLayers) {
@@ -201,12 +190,9 @@ export default function CreateObjectDialog(): React.ReactElement {
           const symDef = project.symbols.find((s) => s.id === sl.symbolId)
           if (symDef) {
             consumedSymbolIds.push(sl.symbolId)
-            // Merge the symbol layer's animation into each inner layer
             for (const inner of symDef.layers) {
               const merged: Layer = JSON.parse(JSON.stringify(inner))
               merged.id = generateId()
-              // The outer symbol layer has the position animation; the inner layer is at origin.
-              // Replace inner tracks with outer track values (inner is zeroed for shapes from SWF import).
               for (const prop of ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'opacity'] as const) {
                 const outerTrack = sl.tracks.find((t) => t.property === prop)
                 if (!outerTrack) continue
@@ -243,7 +229,6 @@ export default function CreateObjectDialog(): React.ReactElement {
         layers: innerLayers
       }
 
-      // The outer symbol layer sits at (0, 0) — animation is on the inner layers
       const defaultTracks: PropertyTrack[] = [
         { property: 'x', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
         { property: 'y', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
@@ -266,7 +251,6 @@ export default function CreateObjectDialog(): React.ReactElement {
         tracks: defaultTracks
       }
 
-      // Also store a lightweight ShapeObjectDef for the library (paths only, no layer copies)
       const objectId = generateId()
       const shapeObject: ShapeObjectDef = {
         id: objectId,
@@ -274,7 +258,7 @@ export default function CreateObjectDialog(): React.ReactElement {
         paths: allPaths,
         originX: combinedOriginX,
         originY: combinedOriginY,
-        layers: [] // no need to duplicate layers — symbol owns them
+        layers: []
       }
 
       useProjectStore.getState().applyAction(`Save object "${trimmed}"`, (draft) => {
@@ -282,12 +266,10 @@ export default function CreateObjectDialog(): React.ReactElement {
         draft.shapeObjects.push(shapeObject)
         if (!draft.symbols) draft.symbols = []
         draft.symbols.push(symbolDef as any)
-        // Remove orphaned original symbols that were consumed
         if (consumedSymbolIds.length > 0) {
           draft.symbols = draft.symbols.filter(
             (s) => !consumedSymbolIds.includes(s.id)
           )
-          // Re-add the new symbol (filter may have removed it if IDs collide — they won't, but be safe)
           if (!draft.symbols.find((s) => s.id === symbolId)) {
             draft.symbols.push(symbolDef as any)
           }
@@ -301,7 +283,6 @@ export default function CreateObjectDialog(): React.ReactElement {
         draft.layers.sort((a, b) => a.order - b.order)
       })
     } else {
-      // No independent animation — create a flat shape layer (original behavior)
       const firstSrc = sourceLayers[0]
       const objectTracks: PropertyTrack[] = JSON.parse(JSON.stringify(firstSrc.tracks))
 
@@ -377,14 +358,15 @@ export default function CreateObjectDialog(): React.ReactElement {
   if (!dialogData) return null as unknown as React.ReactElement
 
   return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ minWidth: 340 }}>
-        <h2>Save to Objects</h2>
+    <Dialog open onOpenChange={(open) => { if (!open) handleCancel() }}>
+      <DialogContent className="min-w-[340px]">
+        <DialogHeader>
+          <DialogTitle>Save to Objects</DialogTitle>
+        </DialogHeader>
 
-        <div className="field-row" style={{ marginBottom: 20 }}>
-          <label style={{ width: 70 }}>Name</label>
-          <input
-            type="text"
+        <div className="flex items-center gap-1.5 mb-5">
+          <Label className="w-[70px] shrink-0">Name</Label>
+          <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -393,13 +375,11 @@ export default function CreateObjectDialog(): React.ReactElement {
           />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={handleCancel}>Cancel</button>
-          <button className="primary" onClick={handleCreate} disabled={!name.trim()}>
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="default" onClick={handleCancel}>Cancel</Button>
+          <Button variant="primary" onClick={handleCreate} disabled={!name.trim()}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

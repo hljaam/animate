@@ -15,7 +15,7 @@ There is no test runner configured. There is no lint script.
 
 ## Architecture
 
-This is an **Electron desktop 2D animation editor** with three processes:
+This is an **Electron desktop 2D animation editor** (Adobe Animate-style) with three processes:
 
 ### Process Boundaries
 
@@ -31,16 +31,35 @@ Current IPC methods: `importAsset`, `importSwf`, `importPsd`, `saveProject`, `op
 
 ### State Management
 
-Two Zustand stores:
+Three Zustand stores:
 
 - **`projectStore`** — project data (layers, assets, keyframes, tracks). Undo/redo uses Immer patches (hybrid approach). Key methods:
   - `applyAction(description, mutator)` — undoable mutation. Wraps the mutator in Immer's `produceWithPatches`, captures forward/inverse patches, and pushes to `CommandHistory`. Use this for all user-facing mutations.
   - `mutateProject(mutator)` — non-undoable mutation via Immer `produce()`. Use for live drag updates and other ephemeral changes.
   - `updateLayer(layerId, changes)` — non-undoable convenience method for simple layer property changes (name, visibility, lock).
-- **`editorStore`** — ephemeral UI state (selectedLayerId, currentFrame, isPlaying, zoom, panX/Y, activeTool, exportProgress, showCommandConsole, showNewProjectDialog)
-- **`clipboardStore`** — clipboard state for copy/paste operations
+- **`editorStore`** — ephemeral UI state: selectedLayerIds, currentFrame, isPlaying, zoom, panX/Y, activeTool (`'select'`|`'hand'`), selectedSpan, loopPlayback, onionSkin settings, timelineZoom (0.5–4.0), layerRowHeight (`'short'`|`'medium'`|`'tall'`), editingSymbolId/editingObjectId (nested editing), export state, dialog visibility.
+- **`clipboardStore`** — clipboard for both layer copy/paste (Ctrl+C/V with deep clone, new IDs, center-offset) and frame-level keyframe value copy/paste.
 
-**Critical convention:** All user-facing mutations to project data must go through `applyAction()`. `CommandHistory` (`src/renderer/store/commands/Command.ts`) stores `PatchEntry` objects (description + Immer patches + inverse patches). Undo applies inverse patches; redo re-applies forward patches. No per-operation Command classes needed — any mutation is automatically undoable.
+**Critical convention:** All user-facing mutations to project data must go through `applyAction()`. `CommandHistory` (`src/renderer/store/commands/Command.ts`) stores `PatchEntry` objects (description + Immer patches + inverse patches). Undo applies inverse patches; redo re-applies forward patches. No per-operation Command classes needed — any mutation is automatically undoable. History is in-memory only; cleared on project load.
+
+**Live vs. committed updates:** For drag operations and property panel inputs, use `mutateProject()` on every pointermove/input for immediate visual feedback, then `applyAction()` on pointerup/blur to commit the final state to undo history. This two-phase pattern prevents flooding the history with intermediate states.
+
+**Store subscriptions:** Use Zustand selectors to avoid unnecessary re-renders:
+```typescript
+const zoom = useEditorStore((s) => s.zoom)        // Re-renders only when zoom changes
+const project = useProjectStore.getState().project  // Immediate read, no subscription
+```
+
+### Frame/Keyframe Model
+
+The timeline follows Adobe Animate's hold-by-default paradigm:
+
+- **Default easing is `'step'`** — keyframes hold their value until the next keyframe (no interpolation). This is set via the `DEFAULT_EASING` constant in `src/renderer/types/project.ts`.
+- **Span-based visualization** — the timeline renders colored blocks between keyframes: gray spans = hold (step easing), blue spans = tween (non-step easing, with arrow indicator).
+- **Span selection** — clicking between keyframes selects a span, tracked in `editorStore.selectedSpan` (`{ layerId, startFrame, endFrame }`). This is distinct from keyframe selection.
+- **Frame operations** — F5 extends the layer by 1 frame (`endFrame += 1`). Shift+F5 shrinks by 1 frame (trims keyframes past new end). F6 converts the current frame to a keyframe (interpolated values, inherits span easing) without adding frames. F7 inserts a blank keyframe (default values, step easing) without adding frames. F6/F7 only extend the layer if the playhead is past the current end.
+- **Tween toggling** — right-click context menu on spans: "Create Classic Tween" sets easing to linear; "Remove Tween" reverts to step. Tween type submenu switches between linear/easeIn/easeOut/easeInOut.
+- **Frame labels** — stored in `project.frameLabels`, rendered as gold flag markers on the TimeRuler.
 
 ### Rendering
 
@@ -48,26 +67,45 @@ Two Zustand stores:
 
 Keyframe interpolation lives in `src/renderer/pixi/interpolation.ts` — supports linear, easeIn, easeOut, easeInOut, and step easing. Step easing holds the previous value (no lerp).
 
+Stage interactions: pointer down on empty stage starts marquee selection; pointer up selects all layers within rect bounds. Right-click on a layer shows a context menu with Copy, Paste, Delete, Save to Objects, Save to Unit (auto-converts to symbol if needed), Bring to Front, Send to Back.
+
 ### Data Model
 
 ```
 Project → layers: Layer[] → tracks: PropertyTrack[] → keyframes: Keyframe[]
 Project → assets: Asset[]
+Project → symbols?: SymbolDef[]
+Project → shapeObjects?: ShapeObjectDef[]
+Project → units?: UnitDef[]
+Project → frameLabels?: Record<number, string>
 ```
 
-Four layer types: `image` (references asset by `assetId`), `text` (has `textData`), `shape` (has `shapeData` with fill paths), `symbol` (nested timeline via `symbolId`).
+**Core types** (defined in `src/renderer/types/project.ts`):
+- `EasingType`: `'linear'` | `'easeIn'` | `'easeOut'` | `'easeInOut'` | `'step'`
+- `TrackProperty`: `'x'` | `'y'` | `'scaleX'` | `'scaleY'` | `'rotation'` | `'opacity'`
+- `LayerType`: `'image'` | `'text'` | `'shape'` | `'symbol'`
 
-Layer factory functions in `src/renderer/utils/layerFactory.ts`: `createImageLayer()`, `createTextLayer()`, `createRectangleLayer()`, `createEllipseLayer()`, `createSymbolLayer()`.
+Four layer types: `image` (references asset by `assetId`), `text` (has `textData`), `shape` (has `shapeData` with fill paths), `symbol` (nested timeline via `symbolId`). Layers can also reference reusable shape objects via `shapeObjectId`.
+
+Layer factory functions in `src/renderer/utils/layerFactory.ts`: `createImageLayer()`, `createTextLayer()`, `createRectangleLayer()`, `createEllipseLayer()`, `createSymbolLayer()`, `createShapeObjectLayer()`.
 
 Properties animated per layer: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `opacity`. Each property has its own `PropertyTrack` with sorted keyframes.
 
-Layers also support: `blendMode`, `tintColor`/`tintAmount`, `filters` (blur/dropShadow/glow via `FilterConfig[]`), `assetSwaps` (frame-by-frame asset swapping), `isMask`/`maskLayerId` (masking), and `shapeKeyframes` (shape morphing).
+Layers also support: `blendMode`, `tintColor`/`tintAmount`, `filters` (blur/dropShadow/glow via `FilterConfig[]`), `assetSwaps` (frame-by-frame asset swapping), `isMask`/`maskLayerId` (masking), `shapeKeyframes` (shape morphing), `outlineMode`/`outlineColor` (colored outline display), `semiTransparent` (reduced opacity preview via Shift+click eye icon).
 
-Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId`.
+Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId`. Sound infrastructure exists in the type system but playback is not yet wired up.
+
+### Shape & Vector Support
+
+`ShapeData` consists of `ShapePath[]`, each with `ShapeSegment[]` (move/line/cubic/quadratic/close). Supports sub-paths for even-odd fill holes, bitmap fills via `bitmapFillAssetId`, and origin points for transform anchoring.
+
+`svgToShapeData.ts` parses SVG path notation (M/L/C/Q/Z), extracts fill/stroke, handles even-odd fill-rule. Used by the SWF import pipeline.
 
 ### Symbols
 
-Symbols (`SymbolDef`) are reusable nested timelines containing their own layers. They live in `project.symbols` (a map of `symbolId → SymbolDef`). Symbol layers reference a `symbolId` and render the symbol's nested timeline. The editor supports nested editing — `editorStore.editingSymbolId` tracks which symbol is being edited. "Convert to Symbol" wraps existing layers into a new symbol; "Edit Symbol" enters the nested timeline.
+Symbols (`SymbolDef`) are reusable nested timelines containing their own layers. They live in `project.symbols` (an array of `SymbolDef`). Symbol layers reference a `symbolId` and render the symbol's nested timeline. The editor supports nested editing — `editorStore.editingSymbolId` tracks which symbol is being edited. "Convert to Symbol" wraps existing layers into a new symbol; "Edit Symbol" enters the nested timeline.
+
+`ShapeObjectDef` (reusable shape definitions) live in `project.shapeObjects`. `UnitDef` groups related symbols and shape objects together in `project.units`.
 
 ### Hooks
 
@@ -77,14 +115,44 @@ Key React hooks in `src/renderer/hooks/`:
 - **`usePlayback`** — Frame-based playback loop via requestAnimationFrame
 - **`useExport`** — Creates off-screen StageRenderer for frame capture and export orchestration
 - **`useKeyboardShortcuts`** — Global keyboard bindings (see Keyboard Shortcuts below)
+- **`useClickOutside`** — Detect clicks outside an element (for closing menus/popovers). Uses `pointerdown` in the capture phase so it fires before PixiJS or other handlers can intercept.
+- **`useContextMenuPosition`** — Calculate context menu position relative to cursor, clamped to viewport
 
 ### Command Console
 
-`Ctrl+K` opens a text command console (`src/renderer/console/`). Parser (`commandParser.ts`) and executor (`commandExecutor.ts`) support commands: add-image, add-text, select, move, scale, rotate, opacity, frame, keyframe, duplicate, delete, hide, lock, export-mp4. Supports multi-word layer names and quoted strings.
+`Ctrl+K` opens a text command console (`src/renderer/console/`). Parser (`commandParser.ts`) and executor (`commandExecutor.ts`) support commands: add-image, add-text, select, move, scale, rotate, opacity, frame, keyframe, duplicate, delete, hide, lock, export-mp4. Supports multi-word layer names, quoted strings, and batch execution via `runBatchScript(lines)`.
 
 ### Keyboard Shortcuts
 
-`Ctrl+0` fit-to-canvas, `Ctrl+1` 100% zoom, `Ctrl+K` command console, `Ctrl+Z` undo, `Ctrl+Shift+Z`/`Ctrl+Y` redo, `H` hand tool, `V` select tool, `Delete`/`Backspace` remove selected layer, `Space+drag` pan, middle-mouse-drag pan, `Ctrl+wheel` zoom.
+Defined in `src/renderer/hooks/useKeyboardShortcuts.ts`:
+
+| Key | Action |
+|---|---|
+| `Ctrl+0` | Fit to canvas |
+| `Ctrl+1` | 100% zoom |
+| `Ctrl+K` | Command console |
+| `Ctrl+A` | Select all layers |
+| `Ctrl+C` | Copy selected layers |
+| `Ctrl+V` | Paste layers |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
+| `H` | Hand (pan) tool |
+| `V` | Select tool |
+| `Delete` / `Backspace` | Remove selected layer |
+| `Space+drag` | Pan (release without drag = play/pause toggle) |
+| Middle-mouse drag | Pan |
+| `Ctrl+wheel` | Zoom (centered on cursor) |
+| `F5` | Insert frame (extend layer end by 1) |
+| `Shift+F5` | Remove frame (shrink layer end by 1) |
+| `F6` | Convert frame to keyframe (interpolated values, no frame added) |
+| `F7` | Convert frame to blank keyframe (default values, no frame added) |
+
+### Interaction Patterns
+
+- **Keyframe dragging** — pointer down on keyframe diamond, global pointermove/pointerup listeners, updates frame number across all tracks, commits via `applyAction()`.
+- **Layer toggle drag** — clicking visibility/lock icons and dragging across layer rows applies the toggle to all entered rows. Alt+click = solo, Shift+click eye = semi-transparent mode.
+- **Stage pan inertia** — Space+drag tracks velocity over last 80ms; on release, inertia continues with 0.92 exponential friction decay.
+- **Cursor-relative zoom** — computes world coordinates under cursor, applies zoom, recomputes pan to keep the same world point under cursor.
 
 ### SWF Import & FFDec Integration
 
@@ -102,17 +170,40 @@ SWF import uses JPEXS FFDec (`ffdec.jar`) to decompile SWFs. Key files in `src/m
 
 Renderer captures frames as raw RGBA binary → sends to main via IPC (`exportFrame`) → main writes temp files as `frame_{000000}.raw` → FFmpeg encodes to MP4 (h264, yuv420p, faststart) via `fluent-ffmpeg` + `ffmpeg-static`. A separate `StageRenderer` instance is created off-screen for export to avoid disturbing the UI.
 
+### Project Save/Load
+
+Save writes project JSON to a `.animate` file via Electron save dialog. Load reads the file, parses JSON, and calls `setProject()` to replace state (undo history is cleared). Assets are stored as files in `~/.userData/projects/{projectId}/.project_assets/` with nanoid-based filenames.
+
 ### UI Layout
 
 ```
 TopBar (file ops, zoom, undo/redo, export, tool select)
-├── LibraryPanel │ StageContainer │ PropertiesPanel
+├── ToolSidebar │ LibraryPanel │ StageContainer │ PropertiesPanel
 Timeline (playback controls, layer rows, keyframe tracks)
 ```
 
-`LibraryPanel` manages assets and symbols with search and type filtering (all/images/symbols). Right-clicking timeline layers shows a context menu with: Duplicate, Delete, Hide/Show, Lock/Unlock, Convert to Symbol, Edit Symbol.
+The three-column body uses `ResizeDivider` components for draggable panel resizing (left: 140–500px, right: 180–500px, timeline: min 100px). `ToolSidebar` switches between Library and Units panels.
+
+`LibraryPanel` manages assets and symbols with search and type filtering (all/images/symbols). `UnitsPanel` manages reusable shape objects and symbols (distinct from Library — Units are saved groupings). Right-clicking timeline layers shows a context menu with: Duplicate, Delete, Hide/Show, Lock/Unlock, Convert to Symbol, Edit Symbol.
 
 `StageContainer` handles pan (Space+drag or middle-mouse) and zoom (Ctrl+wheel, centered on cursor). Zoom value of 0 means fit-to-canvas.
+
+Dialogs: `NewProjectDialog` (project presets), `ExportProgressModal` (real-time progress bar), `CreateObjectDialog` (save selected layers as shape object), `SaveToUnitDialog` (name & save symbol/object to a unit).
+
+`PropertiesPanel` has two tabs: PROPERTIES (DocumentTab — project name, canvas size, background color, FPS, duration) and LAYER (LayerTab — transform X/Y/scaleX/Y/rotation/opacity with live editing via `mutateProject()` and keyframe diamond indicators per property).
+
+### Styling Convention
+
+Hybrid approach — **Tailwind CSS** for layout/structure and **inline styles** for component-specific dynamic values:
+
+- **Tailwind + CVA** — primary styling method. Classes applied directly in JSX. `cn()` helper in `src/renderer/lib/utils.ts` (clsx + tailwind-merge) for conditional class merging.
+- **Inline `styles` objects** — some components still define a `styles` record at the bottom with `React.CSSProperties` values for non-Tailwind-friendly dynamic styles.
+- **Design tokens** — CSS custom properties in `src/renderer/styles/global.css`, mapped through `tailwind.config.js`. Key variables: `--bg-primary` (#0D0D11), `--bg-secondary` (#16161C), `--accent` (#8B5CF6), `--text-primary` (#E8E8ED), `--topbar-height` (48px), `--timeline-height` (220px).
+- **Tailwind config** — custom font sizes (xs=11px, sm=12px, base=13px, lg=16px), custom color palette mapping CSS variables, custom border-radius scale.
+
+### UI Components
+
+`src/renderer/components/ui/` contains shadcn-style components built on Radix UI primitives + Tailwind + CVA: `button`, `input`, `label`, `separator`, `dialog`, `tabs`, `progress`, `dropdown-menu`, `popover-menu`. Button has 7 variants (default, primary, destructive, outline, ghost, icon, export) and 4 sizes. All use `React.forwardRef` for composition.
 
 ### CSP
 
@@ -121,7 +212,15 @@ Timeline (playback controls, layer rows, keyframe tracks)
 ## Key Config Files
 
 - `electron.vite.config.ts` — Vite config with three build targets (main, preload, renderer)
-- `tsconfig.json` / `tsconfig.node.json` / `tsconfig.web.json` — separate TS configs for each process
+- `tailwind.config.js` / `postcss.config.js` — Tailwind scans `src/renderer/**/*.{ts,tsx}`, custom color palette mapped to CSS variables
+- `tsconfig.json` / `tsconfig.node.json` / `tsconfig.web.json` — separate TS configs for each process. Renderer uses path alias `@renderer/*` → `src/renderer/*`
 - `package.json` `build` section — electron-builder packaging config (NSIS for Windows, DMG for Mac, AppImage for Linux)
 - FFmpeg binary is bundled via `extraResources` in the electron-builder config
 - FFDec (JPEXS): `bin/ffdec.jar` + `bin/jre/` in dev; `extraResources/ffdec/` in prod
+- Build output goes to `out/` (main, preload, renderer bundles); packaged installers to `dist-electron/`
+- BrowserWindow defaults: 1440×900 (min 1024×700), dark theme, context isolation enabled, no sandbox
+
+## Other Documentation
+
+- `FEATURES.md` — comprehensive feature list and UI behavior reference
+- `COMMAND_CONSOLE.md` — full command console reference with examples

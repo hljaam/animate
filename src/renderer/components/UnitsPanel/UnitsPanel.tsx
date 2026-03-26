@@ -1,43 +1,82 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useProjectStore } from '../../store/projectStore'
-import { useEditorStore } from '../../store/editorStore'
-import { createShapeObjectLayer } from '../../utils/layerFactory'
-import LibraryItem from '../LibraryPanel/LibraryItem'
+import { generateId } from '../../utils/idGenerator'
+import UnitItem from './UnitItem'
 
 export default function UnitsPanel(): React.ReactElement {
   const project = useProjectStore((s) => s.project)
   const [search, setSearch] = useState('')
-  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const createRef = useRef<HTMLInputElement>(null)
 
-  function handleShapeObjectClick(shapeObjectId: string): void {
-    setSelectedObjectId(shapeObjectId)
-  }
+  useEffect(() => {
+    if (creating && createRef.current) {
+      createRef.current.focus()
+    }
+  }, [creating])
 
-  function handleShapeObjectDoubleClick(shapeObjectId: string): void {
-    if (!project) return
-    const obj = project.shapeObjects?.find((o) => o.id === shapeObjectId)
-    if (!obj) return
-    const layer = createShapeObjectLayer(obj, project)
-    const state = useProjectStore.getState()
-    state.applyAction(`Add layer "${layer.name}"`, (draft) => {
-      draft.layers.push(layer)
-      draft.layers.sort((a, b) => a.order - b.order)
+  function handleCreate(): void {
+    const trimmed = newName.trim()
+    if (!trimmed) return
+    useProjectStore.getState().applyAction(`Create unit "${trimmed}"`, (draft) => {
+      if (!draft.units) draft.units = []
+      draft.units.push({
+        id: generateId(),
+        name: trimmed,
+        shapeObjectIds: [],
+        symbolIds: []
+      })
     })
-    useEditorStore.getState().setSelectedLayerId(layer.id)
+    setNewName('')
+    setCreating(false)
   }
 
   const lowerSearch = search.toLowerCase()
-  const shapeObjects = (project?.shapeObjects ?? []).filter((o) =>
-    o.name.toLowerCase().includes(lowerSearch)
+  const units = (project?.units ?? []).filter((u) =>
+    u.name.toLowerCase().includes(lowerSearch)
   )
 
   return (
     <div className="panel" style={styles.panel}>
       <div style={styles.header}>
         <span style={styles.headerTitle}>Units</span>
+        {project && (
+          <button
+            className="!min-h-0 !min-w-0 !p-0 !border-none"
+            style={styles.addBtn}
+            title="Create Unit"
+            onClick={() => { setCreating(true); setNewName('') }}
+          >
+            +
+          </button>
+        )}
       </div>
 
-      {shapeObjects.length > 3 && (
+      {/* Inline create input */}
+      {creating && (
+        <div style={styles.createWrap}>
+          <input
+            ref={createRef}
+            type="text"
+            placeholder="Unit name..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreate()
+              if (e.key === 'Escape') setCreating(false)
+            }}
+            onBlur={() => {
+              if (newName.trim()) handleCreate()
+              else setCreating(false)
+            }}
+            style={styles.createInput}
+          />
+        </div>
+      )}
+
+      {/* Search */}
+      {(project?.units?.length ?? 0) > 3 && (
         <div style={styles.searchWrap}>
           <input
             type="text"
@@ -49,20 +88,14 @@ export default function UnitsPanel(): React.ReactElement {
         </div>
       )}
 
+      {/* Units list */}
       <div style={styles.list}>
-        {shapeObjects.map((obj) => (
-          <LibraryItem
-            key={obj.id}
-            kind="shapeObject"
-            shapeObject={obj}
-            onClick={() => handleShapeObjectClick(obj.id)}
-            onDoubleClick={() => handleShapeObjectDoubleClick(obj.id)}
-            selected={selectedObjectId === obj.id}
-          />
+        {units.map((unit) => (
+          <UnitItem key={unit.id} unit={unit} />
         ))}
-        {project && shapeObjects.length === 0 && (
+        {project && units.length === 0 && !creating && (
           <div style={styles.empty}>
-            {search ? 'No matches' : 'No objects yet.\nRight-click a shape\nto create one.'}
+            {search ? 'No matches' : 'No units yet.\nClick + to create one.'}
           </div>
         )}
         {!project && (
@@ -93,6 +126,34 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: 1,
     color: 'var(--text-secondary)'
+  },
+  addBtn: {
+    width: 24,
+    height: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--accent)',
+    borderRadius: 4,
+    color: '#fff',
+    fontSize: 16,
+    cursor: 'pointer',
+    lineHeight: 1
+  },
+  createWrap: {
+    padding: '8px 12px',
+    borderBottom: '1px solid var(--border)'
+  },
+  createInput: {
+    fontSize: 12,
+    padding: '6px 8px',
+    width: '100%',
+    boxSizing: 'border-box',
+    background: 'var(--bg-primary)',
+    border: '1px solid var(--accent)',
+    borderRadius: 4,
+    color: 'var(--text-primary)',
+    outline: 'none'
   },
   searchWrap: {
     padding: '8px 12px',

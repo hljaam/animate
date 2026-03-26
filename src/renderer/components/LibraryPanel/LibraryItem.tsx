@@ -5,12 +5,14 @@ interface ImageItemProps {
   kind: 'image'
   asset: Asset
   onClick: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
 }
 
 interface SymbolItemProps {
   kind: 'symbol'
   symbol: SymbolDef
   onClick: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
 }
 
 interface ShapeObjectItemProps {
@@ -19,16 +21,17 @@ interface ShapeObjectItemProps {
   onClick: () => void
   onDoubleClick?: () => void
   selected?: boolean
+  onContextMenu?: (e: React.MouseEvent) => void
 }
 
 type Props = ImageItemProps | SymbolItemProps | ShapeObjectItemProps
 
 export default function LibraryItem(props: Props): React.ReactElement {
   if (props.kind === 'image') {
-    const { asset, onClick } = props
+    const { asset, onClick, onContextMenu } = props
     const imgSrc = `file://${asset.localBundlePath.replace(/\\/g, '/')}`
     return (
-      <div style={styles.imageCard} title={asset.name} onClick={onClick}>
+      <div style={styles.imageCard} title={asset.name} onClick={onClick} onContextMenu={onContextMenu}>
         <img src={imgSrc} alt={asset.name} style={styles.imgThumb} draggable={false} />
         <span style={styles.imageName}>{asset.name}</span>
       </div>
@@ -36,12 +39,12 @@ export default function LibraryItem(props: Props): React.ReactElement {
   }
 
   if (props.kind === 'shapeObject') {
-    const { shapeObject, onClick, onDoubleClick, selected } = props
+    const { shapeObject, onClick, onDoubleClick, selected, onContextMenu } = props
     const cardStyle = selected
       ? { ...styles.listCard, borderColor: '#e89b4e', background: 'rgba(232, 155, 78, 0.15)' }
       : styles.listCard
     return (
-      <div style={cardStyle} title={shapeObject.name} onClick={onClick} onDoubleClick={onDoubleClick}>
+      <div style={cardStyle} title={shapeObject.name} onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}>
         <div style={styles.shapeObjectIcon}>{'\u25C7'}</div>
         <div style={styles.listInfo}>
           <span style={styles.listName}>{shapeObject.name}</span>
@@ -54,9 +57,9 @@ export default function LibraryItem(props: Props): React.ReactElement {
     )
   }
 
-  const { symbol, onClick } = props
+  const { symbol, onClick, onContextMenu } = props
   return (
-    <div style={styles.listCard} title={symbol.name} onClick={onClick}>
+    <div style={styles.listCard} title={symbol.name} onClick={onClick} onContextMenu={onContextMenu}>
       <div style={styles.symbolIcon}>{'\u229E'}</div>
       <div style={styles.listInfo}>
         <span style={styles.listName}>{symbol.name}</span>

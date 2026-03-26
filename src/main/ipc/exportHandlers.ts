@@ -18,6 +18,7 @@ interface ExportStartPayload {
 }
 
 interface ExportFramePayload {
+  projectId: string
   frame: number
   pixels: number[] // RGBA Uint8Array as regular array for IPC
   width: number
@@ -41,7 +42,7 @@ export function registerExportHandlers(): void {
   })
 
   ipcMain.handle('export-frame', async (_event, payload: ExportFramePayload) => {
-    const session = sessions.get(Array.from(sessions.keys())[sessions.size - 1])
+    const session = sessions.get(payload.projectId)
     if (!session) return { success: false, error: 'No export session' }
 
     const pixels = new Uint8Array(payload.pixels)
@@ -52,7 +53,7 @@ export function registerExportHandlers(): void {
   })
 
   ipcMain.handle('export-finalize', async (event, payload: { projectId: string; totalFrames: number }) => {
-    const session = sessions.get(payload.projectId) ?? Array.from(sessions.values()).pop()
+    const session = sessions.get(payload.projectId)
     if (!session) return { success: false, error: 'No export session' }
 
     const saveResult = await dialog.showSaveDialog({

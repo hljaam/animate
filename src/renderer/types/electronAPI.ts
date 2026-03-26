@@ -28,6 +28,7 @@ interface ExportStartPayload {
 }
 
 interface ExportFramePayload {
+  projectId: string
   frame: number
   pixels: number[]
   width: number

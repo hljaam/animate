@@ -1,9 +1,12 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useRef } from 'react'
 import type { Layer } from '../../types/project'
 import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
 import { copyLayers, getClipboard, getClipboardCenter } from '../../store/clipboardStore'
 import { generateId } from '../../utils/idGenerator'
+import { useContextMenuPosition } from '../../hooks/useContextMenuPosition'
+import { useClickOutside } from '../../hooks/useClickOutside'
+import { PopoverMenu, MenuItem, MenuSeparator } from '../ui/popover-menu'
 
 interface Props {
   layer: Layer
@@ -14,15 +17,9 @@ interface Props {
 
 export default function LayerContextMenu({ layer, x, y, onClose }: Props): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null)
+  useContextMenuPosition(ref, x, y)
   const history = useProjectStore((s) => s.history)
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent): void {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [onClose])
+  useClickOutside(ref, onClose)
 
   function handleCopy(): void {
     const selectedIds = useEditorStore.getState().selectedLayerIds
@@ -91,12 +88,10 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
     const originalLayer = JSON.parse(JSON.stringify(layer))
 
     state.applyAction(`Convert to symbol "${name}"`, (draft) => {
-      // Remove original layer
       const idx = draft.layers.findIndex((l) => l.id === layer.id)
       if (idx === -1) return
       draft.layers.splice(idx, 1)
 
-      // Add symbol definition
       const symbolDef = {
         id: symbolId,
         name,
@@ -108,7 +103,6 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
       if (!draft.symbols) draft.symbols = []
       draft.symbols.push(symbolDef)
 
-      // Add symbol layer
       draft.layers.push({
         id: symbolLayerId,
         name,
@@ -151,7 +145,6 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
       const l = project.layers.find((ly) => ly.id === id)
       return l?.type === 'shape'
     })
-    // If no multi-select, use the current layer
     const ids = shapeLayerIds.length > 0 ? shapeLayerIds : (layer.type === 'shape' ? [layer.id] : [])
     if (ids.length > 0) {
       useEditorStore.getState().setShowCreateObjectDialog({ layerIds: ids })
@@ -170,62 +163,23 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
     return anySelected || layer.type === 'shape'
   })()
 
-  const items = [
-    { label: 'Copy', action: handleCopy },
-    { label: 'Paste', action: handlePaste },
-    { label: 'Delete', action: handleDelete },
-    { label: '---' },
-    { label: layer.visible ? 'Hide' : 'Show', action: handleToggleVisibility },
-    { label: layer.locked ? 'Unlock' : 'Lock', action: handleToggleLock },
-    { label: '---' },
-    ...(layer.type !== 'symbol'
-      ? [{ label: 'Convert to Symbol', action: handleConvertToSymbol }]
-      : [{ label: 'Edit Symbol', action: handleEditSymbol }]),
-    ...(hasShapeLayers
-      ? [{ label: 'Save to Objects', action: handleCreateObject }]
-      : [])
-  ]
-
   return (
-    <div ref={ref} style={{ ...styles.menu, left: x, top: y }}>
-      {items.map((item, i) =>
-        item.label === '---' ? (
-          <div key={i} style={styles.separator} />
-        ) : (
-          <button key={i} style={styles.item} onClick={item.action}>
-            {item.label}
-          </button>
-        )
+    <PopoverMenu ref={ref} x={x} y={y}>
+      <MenuItem onClick={handleCopy}>Copy</MenuItem>
+      <MenuItem onClick={handlePaste}>Paste</MenuItem>
+      <MenuItem onClick={handleDelete}>Delete</MenuItem>
+      <MenuSeparator />
+      <MenuItem onClick={handleToggleVisibility}>{layer.visible ? 'Hide' : 'Show'}</MenuItem>
+      <MenuItem onClick={handleToggleLock}>{layer.locked ? 'Unlock' : 'Lock'}</MenuItem>
+      <MenuSeparator />
+      {layer.type !== 'symbol' ? (
+        <MenuItem onClick={handleConvertToSymbol}>Convert to Symbol</MenuItem>
+      ) : (
+        <MenuItem onClick={handleEditSymbol}>Edit Symbol</MenuItem>
       )}
-    </div>
+      {hasShapeLayers && (
+        <MenuItem onClick={handleCreateObject}>Save to Objects</MenuItem>
+      )}
+    </PopoverMenu>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  menu: {
-    position: 'fixed',
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border)',
-    borderRadius: 4,
-    padding: '4px 0',
-    zIndex: 1000,
-    minWidth: 160,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
-  },
-  item: {
-    display: 'block',
-    width: '100%',
-    padding: '5px 12px',
-    background: 'none',
-    border: 'none',
-    color: 'var(--text)',
-    fontSize: 12,
-    textAlign: 'left',
-    cursor: 'pointer'
-  },
-  separator: {
-    height: 1,
-    background: 'var(--border)',
-    margin: '4px 0'
-  }
 }

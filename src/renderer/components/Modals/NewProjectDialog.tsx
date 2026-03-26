@@ -3,6 +3,11 @@ import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
 import { generateId } from '../../utils/idGenerator'
 import type { Project } from '../../types/project'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
+import { cn } from '../../lib/utils'
 
 interface Preset {
   label: string
@@ -12,9 +17,9 @@ interface Preset {
 }
 
 const PRESETS: Preset[] = [
-  { label: 'YouTube', sub: '16:9 – 1920×1080', width: 1920, height: 1080 },
-  { label: 'TikTok / Reels', sub: '9:16 – 1080×1920', width: 1080, height: 1920 },
-  { label: 'Instagram', sub: '1:1 – 1080×1080', width: 1080, height: 1080 },
+  { label: 'YouTube', sub: '16:9 - 1920x1080', width: 1920, height: 1080 },
+  { label: 'TikTok / Reels', sub: '9:16 - 1080x1920', width: 1080, height: 1920 },
+  { label: 'Instagram', sub: '1:1 - 1080x1080', width: 1080, height: 1080 },
   { label: 'Custom', sub: 'Enter your own size', width: 0, height: 0 }
 ]
 
@@ -53,15 +58,16 @@ export default function NewProjectDialog(): React.ReactElement {
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ minWidth: 460 }}>
-        <h2>New Project</h2>
+    <Dialog open onOpenChange={(open) => { if (!open) setShowDialog(false) }}>
+      <DialogContent className="min-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>New Project</DialogTitle>
+        </DialogHeader>
 
         {/* Project name */}
-        <div className="field-row" style={{ marginBottom: 16 }}>
-          <label style={{ width: 70 }}>Name</label>
-          <input
-            type="text"
+        <div className="flex items-center gap-1.5 mb-4">
+          <Label className="w-[70px] shrink-0">Name</Label>
+          <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
@@ -69,41 +75,40 @@ export default function NewProjectDialog(): React.ReactElement {
         </div>
 
         {/* Presets */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8 }}>Canvas Size</label>
-          <div style={styles.presets}>
+        <div className="mb-4">
+          <Label className="block mb-2">Canvas Size</Label>
+          <div className="grid grid-cols-2 gap-2">
             {PRESETS.map((p, i) => (
               <button
                 key={p.label}
                 onClick={() => setSelected(i)}
-                style={{
-                  ...styles.presetBtn,
-                  borderColor: selected === i ? 'var(--accent)' : 'var(--border)',
-                  background: selected === i ? 'rgba(74,158,255,0.1)' : 'var(--bg-tertiary)'
-                }}
+                className={cn(
+                  'flex flex-col items-start p-2.5 px-3.5 rounded-md border cursor-pointer text-left transition-colors',
+                  selected === i
+                    ? 'border-primary bg-primary-dim'
+                    : 'border-border bg-bg-tertiary hover:border-border-light'
+                )}
               >
-                <strong style={{ fontSize: 13 }}>{p.label}</strong>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {p.sub}
-                </span>
+                <strong className="text-base">{p.label}</strong>
+                <span className="text-xs text-text-muted mt-0.5">{p.sub}</span>
               </button>
             ))}
           </div>
 
           {isCustom && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <div className="field-row" style={{ flex: 1 }}>
-                <label style={{ width: 50 }}>Width</label>
-                <input
+            <div className="flex gap-2 mt-2.5">
+              <div className="flex items-center gap-1.5 flex-1">
+                <Label className="w-[50px] shrink-0">Width</Label>
+                <Input
                   type="number"
                   value={customW}
                   min={1}
                   onChange={(e) => setCustomW(parseInt(e.target.value) || 1)}
                 />
               </div>
-              <div className="field-row" style={{ flex: 1 }}>
-                <label style={{ width: 50 }}>Height</label>
-                <input
+              <div className="flex items-center gap-1.5 flex-1">
+                <Label className="w-[50px] shrink-0">Height</Label>
+                <Input
                   type="number"
                   value={customH}
                   min={1}
@@ -115,59 +120,41 @@ export default function NewProjectDialog(): React.ReactElement {
         </div>
 
         {/* Timing */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-          <div className="field-row" style={{ flex: 1 }}>
-            <label style={{ width: 70 }}>FPS</label>
-            <select value={fps} onChange={(e) => setFps(parseInt(e.target.value))}>
+        <div className="flex gap-3 mb-5">
+          <div className="flex items-center gap-1.5 flex-1">
+            <Label className="w-[70px] shrink-0">FPS</Label>
+            <select
+              value={fps}
+              onChange={(e) => setFps(parseInt(e.target.value))}
+              className="flex w-full rounded-sm border border-border bg-background px-2 py-1 text-sm text-foreground outline-none cursor-pointer"
+            >
               <option value={24}>24</option>
               <option value={30}>30</option>
               <option value={60}>60</option>
             </select>
           </div>
-          <div className="field-row" style={{ flex: 1 }}>
-            <label style={{ width: 70 }}>Duration</label>
-            <input
+          <div className="flex items-center gap-1.5 flex-1">
+            <Label className="w-[70px] shrink-0">Duration</Label>
+            <Input
               type="number"
               value={durationSec}
               min={1}
               max={600}
               onChange={(e) => setDurationSec(parseFloat(e.target.value) || 5)}
             />
-            <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>sec</span>
+            <span className="text-xs text-text-muted">sec</span>
           </div>
         </div>
 
-        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 20 }}>
-          {width} × {height}px · {fps} fps · {Math.round(durationSec * fps)} frames
+        <div className="text-xs text-text-muted mb-5">
+          {width} x {height}px &middot; {fps} fps &middot; {Math.round(durationSec * fps)} frames
         </div>
 
-        {/* Actions */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={() => setShowDialog(false)}>Cancel</button>
-          <button className="primary" onClick={handleCreate}>
-            Create Project
-          </button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="default" onClick={() => setShowDialog(false)}>Cancel</Button>
+          <Button variant="primary" onClick={handleCreate}>Create Project</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  presets: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 8
-  },
-  presetBtn: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    padding: '10px 14px',
-    borderRadius: 6,
-    border: '1px solid var(--border)',
-    cursor: 'pointer',
-    textAlign: 'left',
-    transition: 'border-color 0.1s, background 0.1s'
-  }
 }

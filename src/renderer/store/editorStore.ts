@@ -21,6 +21,7 @@ interface EditorState {
   editingObjectId: string | null
   canvasContextMenu: { x: number; y: number; layerId: string | null } | null
   showCreateObjectDialog: { layerIds: string[] } | null
+  showSaveToUnitDialog: { itemType: 'symbol' | 'shapeObject'; itemId: string } | null
 
   // Timeline features
   loopPlayback: boolean
@@ -50,6 +51,7 @@ interface EditorState {
   setEditingObjectId: (id: string | null) => void
   setCanvasContextMenu: (menu: { x: number; y: number; layerId: string | null } | null) => void
   setShowCreateObjectDialog: (data: { layerIds: string[] } | null) => void
+  setShowSaveToUnitDialog: (data: { itemType: 'symbol' | 'shapeObject'; itemId: string } | null) => void
   setLoopPlayback: (loop: boolean) => void
   setOnionSkinEnabled: (enabled: boolean) => void
   setOnionSkinBefore: (count: number) => void
@@ -80,6 +82,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   editingObjectId: null,
   canvasContextMenu: null,
   showCreateObjectDialog: null,
+  showSaveToUnitDialog: null,
 
   // Timeline features
   loopPlayback: true,
@@ -112,6 +115,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   setEditingObjectId: (id) => set({ editingObjectId: id, selectedLayerIds: [], selectedLayerId: null }),
   setCanvasContextMenu: (menu) => set({ canvasContextMenu: menu }),
   setShowCreateObjectDialog: (data) => set({ showCreateObjectDialog: data }),
+  setShowSaveToUnitDialog: (data) => set({ showSaveToUnitDialog: data }),
   setLoopPlayback: (loop) => set({ loopPlayback: loop }),
   setOnionSkinEnabled: (enabled) => set({ onionSkinEnabled: enabled }),
   setOnionSkinBefore: (count) => set({ onionSkinBefore: count }),

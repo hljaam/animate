@@ -1,12 +1,30 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
-import { createImageLayer, createSymbolLayer, createShapeObjectLayer } from '../../utils/layerFactory'
+import { createImageLayer } from '../../utils/layerFactory'
+import { findLayersByReference } from '../../utils/layerLookup'
 import LibraryItem from './LibraryItem'
+import { PopoverMenu, MenuItem } from '../ui/popover-menu'
+import { useClickOutside } from '../../hooks/useClickOutside'
 
 export default function LibraryPanel({ embedded }: { embedded?: boolean }): React.ReactElement {
   const project = useProjectStore((s) => s.project)
   const [search, setSearch] = useState('')
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; itemType: 'symbol' | 'shapeObject'; itemId: string } | null>(null)
+  const ctxRef = useRef<HTMLDivElement>(null)
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
+  useClickOutside(ctxRef, ctxMenu ? closeCtxMenu : null)
+
+  function handleItemContextMenu(e: React.MouseEvent, itemType: 'symbol' | 'shapeObject', itemId: string): void {
+    e.preventDefault()
+    setCtxMenu({ x: e.clientX, y: e.clientY, itemType, itemId })
+  }
+
+  function handleSaveToUnit(): void {
+    if (!ctxMenu) return
+    useEditorStore.getState().setShowSaveToUnitDialog({ itemType: ctxMenu.itemType, itemId: ctxMenu.itemId })
+    setCtxMenu(null)
+  }
 
   async function handleImport(): Promise<void> {
     if (!project) return
@@ -47,28 +65,14 @@ export default function LibraryPanel({ embedded }: { embedded?: boolean }): Reac
 
   function handleSymbolClick(symbolId: string): void {
     if (!project) return
-    const sym = project.symbols?.find((s) => s.id === symbolId)
-    if (!sym) return
-    const layer = createSymbolLayer(sym, project)
-    const state = useProjectStore.getState()
-    state.applyAction(`Add layer "${layer.name}"`, (draft) => {
-      draft.layers.push(layer)
-      draft.layers.sort((a, b) => a.order - b.order)
-    })
-    useEditorStore.getState().setSelectedLayerId(layer.id)
+    const ids = findLayersByReference(project, 'symbol', symbolId)
+    if (ids.length > 0) useEditorStore.getState().setSelectedLayerId(ids[0])
   }
 
   function handleShapeObjectClick(shapeObjectId: string): void {
     if (!project) return
-    const obj = project.shapeObjects?.find((o) => o.id === shapeObjectId)
-    if (!obj) return
-    const layer = createShapeObjectLayer(obj, project)
-    const state = useProjectStore.getState()
-    state.applyAction(`Add layer "${layer.name}"`, (draft) => {
-      draft.layers.push(layer)
-      draft.layers.sort((a, b) => a.order - b.order)
-    })
-    useEditorStore.getState().setSelectedLayerId(layer.id)
+    const ids = findLayersByReference(project, 'shapeObject', shapeObjectId)
+    if (ids.length > 0) useEditorStore.getState().setSelectedLayerId(ids[0])
   }
 
   const lowerSearch = search.toLowerCase()
@@ -131,6 +135,7 @@ export default function LibraryPanel({ embedded }: { embedded?: boolean }): Reac
                 kind="symbol"
                 symbol={sym}
                 onClick={() => handleSymbolClick(sym.id)}
+                onContextMenu={(e) => handleItemContextMenu(e, 'symbol', sym.id)}
               />
             ))}
           </>
@@ -146,6 +151,7 @@ export default function LibraryPanel({ embedded }: { embedded?: boolean }): Reac
                 kind="shapeObject"
                 shapeObject={obj}
                 onClick={() => handleShapeObjectClick(obj.id)}
+                onContextMenu={(e) => handleItemContextMenu(e, 'shapeObject', obj.id)}
               />
             ))}
           </>
@@ -163,13 +169,25 @@ export default function LibraryPanel({ embedded }: { embedded?: boolean }): Reac
     </>
   )
 
+  const menuEl = ctxMenu && (
+    <PopoverMenu ref={ctxRef} x={ctxMenu.x} y={ctxMenu.y}>
+      <MenuItem onClick={handleSaveToUnit}>Save to Unit</MenuItem>
+    </PopoverMenu>
+  )
+
   if (embedded) {
-    return <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>{content}</div>
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        {content}
+        {menuEl}
+      </div>
+    )
   }
 
   return (
     <div className="panel" style={styles.panel}>
       {content}
+      {menuEl}
     </div>
   )
 }

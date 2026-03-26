@@ -3,7 +3,6 @@ import type { Layer, EasingType } from '../../types/project'
 import { DEFAULT_EASING } from '../../types/project'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
-import KeyframeContextMenu from './KeyframeContextMenu'
 
 interface Props {
   layer: Layer
@@ -35,7 +34,6 @@ export default function KeyframeTrack({ layer, pixelsPerFrame, totalFrames }: Pr
     targetFrame: number
     startX: number
   } | null>(null)
-  const [contextMenu, setContextMenu] = useState<{ frame: number; x: number; y: number } | null>(null)
   const trackRef = useRef<HTMLDivElement>(null)
 
   // Collect unique keyframe positions from all tracks
@@ -137,26 +135,9 @@ export default function KeyframeTrack({ layer, pixelsPerFrame, totalFrames }: Pr
     }
   }
 
-  // --- Right-click ---
-  function handleTrackContextMenu(e: React.MouseEvent): void {
-    e.preventDefault()
-    if (!trackRef.current) return
-    const rect = trackRef.current.getBoundingClientRect()
-    const relX = e.clientX - rect.left
-    const frame = Math.max(0, Math.round(relX / pixelsPerFrame))
-    setCurrentFrame(frame)
-    setContextMenu({ frame, x: e.clientX, y: e.clientY })
-  }
-
   function handleKeyframeClick(frame: number): void {
     setCurrentFrame(frame)
     setSelectedSpan(null)
-  }
-
-  function handleKeyframeRightClick(frame: number, e: React.MouseEvent): void {
-    setCurrentFrame(frame)
-    setSelectedSpan(null)
-    setContextMenu({ frame, x: e.clientX, y: e.clientY })
   }
 
   // --- Grid lines via CSS repeating gradient ---
@@ -165,11 +146,9 @@ export default function KeyframeTrack({ layer, pixelsPerFrame, totalFrames }: Pr
     : undefined
 
   return (
-    <>
       <div
         ref={trackRef}
         onClick={handleTrackClick}
-        onContextMenu={handleTrackContextMenu}
         style={{
           position: 'relative',
           flex: 1,
@@ -251,7 +230,6 @@ export default function KeyframeTrack({ layer, pixelsPerFrame, totalFrames }: Pr
               title={`Frame ${frame}`}
               onClick={(e) => { e.stopPropagation(); handleKeyframeClick(frame) }}
               onPointerDown={(e) => { if (e.button === 0) handleDragStart(frame, e) }}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleKeyframeRightClick(frame, e) }}
               style={{
                 position: 'absolute',
                 left: frame * pixelsPerFrame + pixelsPerFrame / 2 - 5,
@@ -286,15 +264,5 @@ export default function KeyframeTrack({ layer, pixelsPerFrame, totalFrames }: Pr
           />
         )}
       </div>
-      {contextMenu && (
-        <KeyframeContextMenu
-          layer={layer}
-          frame={contextMenu.frame}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-    </>
   )
 }

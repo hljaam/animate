@@ -88,6 +88,15 @@ export interface ShapeObjectDef {
   layers?: Layer[]
 }
 
+// ── Unit Definition (grouping of objects/symbols) ─────────────────────────
+
+export interface UnitDef {
+  id: string
+  name: string
+  shapeObjectIds: string[]
+  symbolIds: string[]
+}
+
 // ── Symbol Definition (nested timelines) ──────────────────────────────────
 
 export interface SymbolDef {
@@ -175,6 +184,7 @@ export interface Project {
   layers: Layer[]
   symbols?: SymbolDef[]
   shapeObjects?: ShapeObjectDef[]
+  units?: UnitDef[]
   frameLabels?: Record<number, string>
 }
 

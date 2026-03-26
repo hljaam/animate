@@ -1,29 +1,20 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useRef, useCallback } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { copyLayers, getClipboard, getClipboardCenter } from '../../store/clipboardStore'
 import { generateId } from '../../utils/idGenerator'
-import type { Layer } from '../../types/project'
+import { useContextMenuPosition } from '../../hooks/useContextMenuPosition'
+import { useClickOutside } from '../../hooks/useClickOutside'
+import { PopoverMenu, MenuItem, MenuSeparator } from '../ui/popover-menu'
+import type { Layer, PropertyTrack } from '../../types/project'
 
 export default function CanvasContextMenu(): React.ReactElement | null {
   const menu = useEditorStore((s) => s.canvasContextMenu)
   const setMenu = useEditorStore((s) => s.setCanvasContextMenu)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!menu) return
-    function handleClick(e: MouseEvent): void {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setMenu(null)
-      }
-    }
-    // Delay to avoid immediate close from the same pointerdown
-    const id = setTimeout(() => document.addEventListener('mousedown', handleClick), 0)
-    return () => {
-      clearTimeout(id)
-      document.removeEventListener('mousedown', handleClick)
-    }
-  }, [menu, setMenu])
+  useContextMenuPosition(ref, menu?.x ?? 0, menu?.y ?? 0)
+  const closeMenu = useCallback(() => setMenu(null), [setMenu])
+  useClickOutside(ref, menu ? closeMenu : null)
 
   if (!menu) return null
 
@@ -53,7 +44,6 @@ export default function CanvasContextMenu(): React.ReactElement | null {
     if (!project) return { x: screenX, y: screenY }
     const { zoom, panX, panY, fitZoom } = useEditorStore.getState()
     const effectiveZoom = zoom === 0 ? fitZoom : zoom
-    // Find the stage container element
     const stageEl = document.querySelector('[data-stage-container]') as HTMLElement | null
     if (!stageEl) return { x: screenX, y: screenY }
     const rect = stageEl.getBoundingClientRect()
@@ -88,7 +78,6 @@ export default function CanvasContextMenu(): React.ReactElement | null {
             name: `${clipboard[i].name} copy`,
             order: maxOrder + 1 + i
           }
-          // Offset x/y keyframes
           if (offsetX !== 0 || offsetY !== 0) {
             for (const track of clone.tracks) {
               if (track.property === 'x') {
@@ -164,7 +153,6 @@ export default function CanvasContextMenu(): React.ReactElement | null {
     close()
   }
 
-  // Check if multiple layers are selected (for Create Object option)
   const selectedIds = useEditorStore.getState().selectedLayerIds
   const hasMultipleSelected = selectedIds.length > 1
   const hasShapeLayers = (() => {
@@ -177,72 +165,107 @@ export default function CanvasContextMenu(): React.ReactElement | null {
     })
   })()
 
-  const items: Array<{ label: string; action: () => void; disabled?: boolean } | 'separator'> = []
+  function handleSaveToUnit(): void {
+    if (!layerId) return
+    const project = useProjectStore.getState().project
+    if (!project) return
+    const layer = project.layers.find((l) => l.id === layerId)
+    if (!layer) return
 
-  if (layerId) {
-    items.push({ label: 'Copy', action: handleCopy })
-    items.push({ label: 'Paste', action: handlePaste })
-    items.push({ label: 'Delete', action: handleDelete })
-    items.push('separator')
-    if (hasShapeLayers || hasMultipleSelected) {
-      items.push({ label: 'Save to Objects', action: handleCreateObject })
-      items.push('separator')
+    // Already a symbol — save directly
+    if (layer.type === 'symbol' && layer.symbolId) {
+      useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'symbol', itemId: layer.symbolId })
+      close()
+      return
     }
-    items.push({ label: 'Bring to Front', action: handleBringToFront })
-    items.push({ label: 'Send to Back', action: handleSendToBack })
-  } else {
-    items.push({ label: 'Paste', action: handlePaste })
-    if (hasShapeLayers || hasMultipleSelected) {
-      items.push('separator')
-      items.push({ label: 'Save to Objects', action: handleCreateObject })
+
+    // Already a shape object — save directly
+    if (layer.shapeObjectId) {
+      useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'shapeObject', itemId: layer.shapeObjectId })
+      close()
+      return
     }
-    items.push('separator')
-    items.push({ label: 'Select All', action: handleSelectAll })
+
+    // Convert layer to symbol first, then open save-to-unit dialog
+    const symbolId = generateId()
+    const symbolLayerId = generateId()
+    const name = layer.name
+    const originalLayer = JSON.parse(JSON.stringify(layer))
+
+    useProjectStore.getState().applyAction(`Convert to symbol "${name}"`, (draft) => {
+      const idx = draft.layers.findIndex((l) => l.id === layer.id)
+      if (idx === -1) return
+      draft.layers.splice(idx, 1)
+
+      const symbolDef = {
+        id: symbolId,
+        name,
+        libraryItemName: name,
+        fps: draft.fps,
+        durationFrames: draft.durationFrames,
+        layers: [originalLayer]
+      }
+      if (!draft.symbols) draft.symbols = []
+      draft.symbols.push(symbolDef)
+
+      const defaultTracks: PropertyTrack[] = [
+        { property: 'x', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
+        { property: 'y', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
+        { property: 'scaleX', keyframes: [{ frame: 0, value: 1, easing: 'step' }] },
+        { property: 'scaleY', keyframes: [{ frame: 0, value: 1, easing: 'step' }] },
+        { property: 'rotation', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
+        { property: 'opacity', keyframes: [{ frame: 0, value: 1, easing: 'step' }] }
+      ]
+
+      draft.layers.push({
+        id: symbolLayerId,
+        name,
+        type: 'symbol' as const,
+        symbolId,
+        visible: true,
+        locked: false,
+        order: originalLayer.order,
+        startFrame: originalLayer.startFrame,
+        endFrame: originalLayer.endFrame,
+        tracks: defaultTracks
+      } as any)
+      draft.layers.sort((a, b) => a.order - b.order)
+    })
+
+    useEditorStore.getState().setSelectedLayerId(symbolLayerId)
+    useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'symbol', itemId: symbolId })
+    close()
   }
 
   return (
-    <div
-      ref={ref}
-      style={{
-        position: 'fixed',
-        left: x,
-        top: y,
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border)',
-        borderRadius: 4,
-        padding: '4px 0',
-        minWidth: 160,
-        zIndex: 1000,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
-      }}
-    >
-      {items.map((item, i) => {
-        if (item === 'separator') {
-          return <div key={i} style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-        }
-        return (
-          <button
-            key={item.label}
-            onClick={item.action}
-            disabled={item.disabled}
-            style={{
-              display: 'block',
-              width: '100%',
-              padding: '6px 16px',
-              background: 'none',
-              border: 'none',
-              color: item.disabled ? 'var(--text-muted)' : 'var(--text)',
-              fontSize: 12,
-              textAlign: 'left',
-              cursor: item.disabled ? 'default' : 'pointer'
-            }}
-            onMouseEnter={(e) => { if (!item.disabled) (e.target as HTMLElement).style.background = 'var(--accent-dim)' }}
-            onMouseLeave={(e) => { (e.target as HTMLElement).style.background = 'none' }}
-          >
-            {item.label}
-          </button>
-        )
-      })}
-    </div>
+    <PopoverMenu ref={ref} x={x} y={y}>
+      {layerId ? (
+        <>
+          <MenuItem onClick={handleCopy}>Copy</MenuItem>
+          <MenuItem onClick={handlePaste}>Paste</MenuItem>
+          <MenuItem onClick={handleDelete}>Delete</MenuItem>
+          <MenuSeparator />
+          {(hasShapeLayers || hasMultipleSelected) && (
+            <MenuItem onClick={handleCreateObject}>Save to Objects</MenuItem>
+          )}
+          <MenuItem onClick={handleSaveToUnit}>Save to Unit</MenuItem>
+          <MenuSeparator />
+          <MenuItem onClick={handleBringToFront}>Bring to Front</MenuItem>
+          <MenuItem onClick={handleSendToBack}>Send to Back</MenuItem>
+        </>
+      ) : (
+        <>
+          <MenuItem onClick={handlePaste}>Paste</MenuItem>
+          {(hasShapeLayers || hasMultipleSelected) && (
+            <>
+              <MenuSeparator />
+              <MenuItem onClick={handleCreateObject}>Save to Objects</MenuItem>
+            </>
+          )}
+          <MenuSeparator />
+          <MenuItem onClick={handleSelectAll}>Select All</MenuItem>
+        </>
+      )}
+    </PopoverMenu>
   )
 }

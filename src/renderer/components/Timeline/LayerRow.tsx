@@ -3,7 +3,7 @@ import type { Layer } from '../../types/project'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import KeyframeTrack from './KeyframeTrack'
-import LayerContextMenu from './LayerContextMenu'
+import KeyframeContextMenu from './KeyframeContextMenu'
 
 interface Props {
   layer: Layer
@@ -55,7 +55,8 @@ export default function LayerRow({ layer, pixelsPerFrame, totalFrames, onDragSta
   const selectedLayerIds = useEditorStore((s) => s.selectedLayerIds)
   const isSelected = selectedLayerIds.includes(layer.id)
   const [hovered, setHovered] = useState(false)
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; frame: number } | null>(null)
+  const trackAreaRef = useRef<HTMLDivElement>(null)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(layer.name)
   const renameRef = useRef<HTMLInputElement>(null)
@@ -80,7 +81,16 @@ export default function LayerRow({ layer, pixelsPerFrame, totalFrames, onDragSta
     if (!isSelected) {
       useEditorStore.getState().setSelectedLayerId(layer.id)
     }
-    setContextMenu({ x: e.clientX, y: e.clientY })
+    // Calculate frame from click position on the track area
+    let frame = useEditorStore.getState().currentFrame
+    if (trackAreaRef.current) {
+      const rect = trackAreaRef.current.getBoundingClientRect()
+      if (e.clientX >= rect.left) {
+        frame = Math.max(0, Math.round((e.clientX - rect.left) / pixelsPerFrame))
+      }
+    }
+    useEditorStore.getState().setCurrentFrame(frame)
+    setContextMenu({ x: e.clientX, y: e.clientY, frame })
   }
 
   function handleVisibleToggle(e: React.MouseEvent): void {
@@ -336,13 +346,14 @@ export default function LayerRow({ layer, pixelsPerFrame, totalFrames, onDragSta
         </div>
 
         {/* Keyframe track area */}
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        <div ref={trackAreaRef} style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           <KeyframeTrack layer={layer} pixelsPerFrame={pixelsPerFrame} totalFrames={totalFrames} />
         </div>
       </div>
       {contextMenu && (
-        <LayerContextMenu
+        <KeyframeContextMenu
           layer={layer}
+          frame={contextMenu.frame}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
