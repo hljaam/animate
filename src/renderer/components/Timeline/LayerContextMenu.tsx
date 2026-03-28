@@ -4,6 +4,7 @@ import { useProjectStore } from '../../store/projectStore'
 import { useEditorStore } from '../../store/editorStore'
 import { copyLayers, getClipboard, getClipboardCenter } from '../../store/clipboardStore'
 import { generateId } from '../../utils/idGenerator'
+import { getLayerType, getLayerSymbolId } from '../../utils/layerContent'
 import { useContextMenuPosition } from '../../hooks/useContextMenuPosition'
 import { useClickOutside } from '../../hooks/useClickOutside'
 import { PopoverMenu, MenuItem, MenuSeparator } from '../ui/popover-menu'
@@ -84,6 +85,7 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
 
     const symbolId = generateId()
     const symbolLayerId = generateId()
+    const contentItemId = generateId()
     const name = layer.name
     const originalLayer = JSON.parse(JSON.stringify(layer))
 
@@ -106,14 +108,16 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
       draft.layers.push({
         id: symbolLayerId,
         name,
-        type: 'symbol' as const,
+        type: 'symbol' as any,
         symbolId,
         visible: true,
         locked: false,
         order: originalLayer.order,
         startFrame: originalLayer.startFrame,
         endFrame: originalLayer.endFrame,
-        tracks: JSON.parse(JSON.stringify(originalLayer.tracks))
+        tracks: JSON.parse(JSON.stringify(originalLayer.tracks)),
+        contentItems: [{ id: contentItemId, name, content: { type: 'symbol' as const, symbolId } }],
+        contentKeyframes: [{ frame: originalLayer.startFrame, contentItemId }]
       })
       draft.layers.sort((a, b) => a.order - b.order)
     })
@@ -131,8 +135,9 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
   }
 
   function handleEditSymbol(): void {
-    if (layer.type === 'symbol' && layer.symbolId) {
-      useEditorStore.getState().setEditingSymbolId(layer.symbolId)
+    const symId = getLayerSymbolId(layer, 0)
+    if (getLayerType(layer) === 'symbol' && symId) {
+      useEditorStore.getState().setEditingSymbolId(symId)
     }
     onClose()
   }
@@ -143,9 +148,9 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
     if (!project) return
     const shapeLayerIds = selectedIds.filter((id) => {
       const l = project.layers.find((ly) => ly.id === id)
-      return l?.type === 'shape'
+      return l ? getLayerType(l) === 'shape' : false
     })
-    const ids = shapeLayerIds.length > 0 ? shapeLayerIds : (layer.type === 'shape' ? [layer.id] : [])
+    const ids = shapeLayerIds.length > 0 ? shapeLayerIds : (getLayerType(layer) === 'shape' ? [layer.id] : [])
     if (ids.length > 0) {
       useEditorStore.getState().setShowCreateObjectDialog({ layerIds: ids })
     }
@@ -155,12 +160,12 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
   const hasShapeLayers = (() => {
     const selectedIds = useEditorStore.getState().selectedLayerIds
     const project = useProjectStore.getState().project
-    if (!project) return layer.type === 'shape'
+    if (!project) return getLayerType(layer) === 'shape'
     const anySelected = selectedIds.some((id) => {
       const l = project.layers.find((ly) => ly.id === id)
-      return l?.type === 'shape'
+      return l ? getLayerType(l) === 'shape' : false
     })
-    return anySelected || layer.type === 'shape'
+    return anySelected || getLayerType(layer) === 'shape'
   })()
 
   return (
@@ -172,7 +177,7 @@ export default function LayerContextMenu({ layer, x, y, onClose }: Props): React
       <MenuItem onClick={handleToggleVisibility}>{layer.visible ? 'Hide' : 'Show'}</MenuItem>
       <MenuItem onClick={handleToggleLock}>{layer.locked ? 'Unlock' : 'Lock'}</MenuItem>
       <MenuSeparator />
-      {layer.type !== 'symbol' ? (
+      {getLayerType(layer) !== 'symbol' ? (
         <MenuItem onClick={handleConvertToSymbol}>Convert to Symbol</MenuItem>
       ) : (
         <MenuItem onClick={handleEditSymbol}>Edit Symbol</MenuItem>

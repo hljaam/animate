@@ -6,6 +6,7 @@ import { DEFAULT_LAYER_PROPS, DEFAULT_EASING } from '../../types/project'
 import type { TrackProperty } from '../../types/project'
 import KeyframeDiamond from './KeyframeDiamond'
 import { createTextLayer, createImageLayer, createRectangleLayer } from '../../utils/layerFactory'
+import { getLayerType, getLayerShapeData, isTextLayer } from '../../utils/layerContent'
 
 const TRANSFORM_PROPS: TrackProperty[] = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'opacity']
 
@@ -287,7 +288,7 @@ export default function LayerTab({ onSwitchTab }: LayerTabProps): React.ReactEle
       )}
 
       {/* Text-specific properties */}
-      {layer.type === 'text' && layer.textData && (
+      {isTextLayer(layer) && layer.textData && (
         <>
           <div style={{ ...styles.sectionHeader, marginTop: 16 }}>TEXT</div>
           <div style={{ padding: '0 0 6px' }}>
@@ -355,95 +356,105 @@ export default function LayerTab({ onSwitchTab }: LayerTabProps): React.ReactEle
       )}
 
       {/* Shape-specific properties */}
-      {layer.type === 'shape' && layer.shapeData && layer.shapeData.paths.length > 0 && (
-        <>
-          <div style={{ ...styles.sectionHeader, marginTop: 16 }}>SHAPE</div>
-          <div className="field-row">
-            <label>Fill</label>
-            <input
-              type="color"
-              value={layer.shapeData.paths[0].fillColor || '#000000'}
-              onChange={(e) => {
-                const newPaths = layer.shapeData!.paths.map((p) =>
-                  p.fillColor !== undefined ? { ...p, fillColor: e.target.value } : p
-                )
-                useProjectStore.getState().updateLayer(layer.id, {
-                  shapeData: { ...layer.shapeData!, paths: newPaths }
-                })
-              }}
-              style={{ width: 40 }}
-            />
-            <input
-              type="text"
-              value={layer.shapeData.paths[0].fillColor || ''}
-              onChange={(e) => {
-                if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) {
-                  const newPaths = layer.shapeData!.paths.map((p) =>
-                    p.fillColor !== undefined ? { ...p, fillColor: e.target.value } : p
+      {(() => {
+        const layerType = getLayerType(layer)
+        const shapeData = (layerType === 'shape') ? getLayerShapeData(layer, currentFrame, project?.shapeObjects ?? undefined) : undefined
+        if (!shapeData || shapeData.paths.length === 0) return null
+
+        // Helper to update shape data inside the active content item
+        function updateShapePaths(updater: (paths: typeof shapeData.paths) => typeof shapeData.paths): void {
+          const newPaths = updater(shapeData!.paths)
+          // Try to update contentItems first (new model)
+          if (layer!.contentItems?.length) {
+            useProjectStore.getState().mutateProject((draft) => {
+              const draftLayer = draft.layers.find((l) => l.id === layer!.id)
+              if (!draftLayer?.contentItems) return
+              for (const ci of draftLayer.contentItems) {
+                if (ci.content.type === 'shape') {
+                  ci.content.shapeData = { ...ci.content.shapeData, paths: newPaths }
+                  return
+                }
+              }
+            })
+          } else if (layer!.shapeData) {
+            // Legacy fallback
+            useProjectStore.getState().updateLayer(layer!.id, {
+              shapeData: { ...layer!.shapeData!, paths: newPaths }
+            })
+          }
+        }
+
+        return (
+          <>
+            <div style={{ ...styles.sectionHeader, marginTop: 16 }}>SHAPE</div>
+            <div className="field-row">
+              <label>Fill</label>
+              <input
+                type="color"
+                value={shapeData.paths[0].fillColor || '#000000'}
+                onChange={(e) => updateShapePaths((paths) =>
+                  paths.map((p) => p.fillColor !== undefined ? { ...p, fillColor: e.target.value } : p)
+                )}
+                style={{ width: 40 }}
+              />
+              <input
+                type="text"
+                value={shapeData.paths[0].fillColor || ''}
+                onChange={(e) => {
+                  if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) {
+                    updateShapePaths((paths) =>
+                      paths.map((p) => p.fillColor !== undefined ? { ...p, fillColor: e.target.value } : p)
+                    )
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+            </div>
+            <div className="field-row">
+              <label>Stroke</label>
+              <input
+                type="color"
+                value={shapeData.paths[0].strokeColor || '#000000'}
+                onChange={(e) => updateShapePaths((paths) =>
+                  paths.map((p) => ({ ...p, strokeColor: e.target.value }))
+                )}
+                style={{ width: 40 }}
+              />
+              <input
+                type="text"
+                value={shapeData.paths[0].strokeColor || ''}
+                onChange={(e) => {
+                  if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value) || e.target.value === '') {
+                    updateShapePaths((paths) =>
+                      paths.map((p) => ({ ...p, strokeColor: e.target.value || undefined }))
+                    )
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+            </div>
+            <div className="field-row">
+              <label>Width</label>
+              <input
+                type="number"
+                value={shapeData.paths[0].strokeWidth || 0}
+                min={0}
+                step={1}
+                onChange={(e) => {
+                  const w = parseFloat(e.target.value) || 0
+                  updateShapePaths((paths) =>
+                    paths.map((p) => ({
+                      ...p,
+                      strokeWidth: w > 0 ? w : undefined,
+                      strokeColor: w > 0 ? (p.strokeColor || '#000000') : p.strokeColor
+                    }))
                   )
-                  useProjectStore.getState().updateLayer(layer.id, {
-                    shapeData: { ...layer.shapeData!, paths: newPaths }
-                  })
-                }
-              }}
-              style={{ flex: 1 }}
-            />
-          </div>
-          <div className="field-row">
-            <label>Stroke</label>
-            <input
-              type="color"
-              value={layer.shapeData.paths[0].strokeColor || '#000000'}
-              onChange={(e) => {
-                const newPaths = layer.shapeData!.paths.map((p) => ({
-                  ...p,
-                  strokeColor: e.target.value
-                }))
-                useProjectStore.getState().updateLayer(layer.id, {
-                  shapeData: { ...layer.shapeData!, paths: newPaths }
-                })
-              }}
-              style={{ width: 40 }}
-            />
-            <input
-              type="text"
-              value={layer.shapeData.paths[0].strokeColor || ''}
-              onChange={(e) => {
-                if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value) || e.target.value === '') {
-                  const newPaths = layer.shapeData!.paths.map((p) => ({
-                    ...p,
-                    strokeColor: e.target.value || undefined
-                  }))
-                  useProjectStore.getState().updateLayer(layer.id, {
-                    shapeData: { ...layer.shapeData!, paths: newPaths }
-                  })
-                }
-              }}
-              style={{ flex: 1 }}
-            />
-          </div>
-          <div className="field-row">
-            <label>Width</label>
-            <input
-              type="number"
-              value={layer.shapeData.paths[0].strokeWidth || 0}
-              min={0}
-              step={1}
-              onChange={(e) => {
-                const w = parseFloat(e.target.value) || 0
-                const newPaths = layer.shapeData!.paths.map((p) => ({
-                  ...p,
-                  strokeWidth: w > 0 ? w : undefined,
-                  strokeColor: w > 0 ? (p.strokeColor || '#000000') : p.strokeColor
-                }))
-                useProjectStore.getState().updateLayer(layer.id, {
-                  shapeData: { ...layer.shapeData!, paths: newPaths }
-                })
-              }}
-            />
-          </div>
-        </>
-      )}
+                }}
+              />
+            </div>
+          </>
+        )
+      })()}
 
       {/* Frame Label */}
       <div style={{ ...styles.sectionHeader, marginTop: 16 }}>FRAME LABEL</div>

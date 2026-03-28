@@ -42,6 +42,7 @@ export default function TopBar(): React.ReactElement {
     useProjectStore.getState().setProject(parsed)
     useEditorStore.getState().setSelectedLayerId(null)
     useEditorStore.getState().setCurrentFrame(0)
+    useEditorStore.getState().setShowSwapObjectDialog(null)
     resetViewToCenter()
   }
 
@@ -51,6 +52,7 @@ export default function TopBar(): React.ReactElement {
     useProjectStore.getState().setProject(result as any)
     useEditorStore.getState().setSelectedLayerId(null)
     useEditorStore.getState().setCurrentFrame(0)
+    useEditorStore.getState().setShowSwapObjectDialog(null)
     resetViewToCenter()
   }
 
@@ -60,6 +62,7 @@ export default function TopBar(): React.ReactElement {
     useProjectStore.getState().setProject(result as any)
     useEditorStore.getState().setSelectedLayerId(null)
     useEditorStore.getState().setCurrentFrame(0)
+    useEditorStore.getState().setShowSwapObjectDialog(null)
     resetViewToCenter()
   }
 

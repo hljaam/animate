@@ -6,6 +6,7 @@ import { generateId } from '../../utils/idGenerator'
 import { useContextMenuPosition } from '../../hooks/useContextMenuPosition'
 import { useClickOutside } from '../../hooks/useClickOutside'
 import { PopoverMenu, MenuItem, MenuSeparator } from '../ui/popover-menu'
+import { getLayerType, getLayerSymbolId, getLayerShapeObjectId } from '../../utils/layerContent'
 import type { Layer, PropertyTrack } from '../../types/project'
 
 export default function CanvasContextMenu(): React.ReactElement | null {
@@ -153,15 +154,38 @@ export default function CanvasContextMenu(): React.ReactElement | null {
     close()
   }
 
+  function handleSwapObject(): void {
+    if (!layerId) return
+    const project = useProjectStore.getState().project
+    if (!project) return
+    const layer = project.layers.find((l) => l.id === layerId)
+    if (!layer) return
+    useEditorStore.getState().setShowSwapObjectDialog({
+      layerId,
+      currentObjectId: getLayerShapeObjectId(layer, useEditorStore.getState().currentFrame) ?? ''
+    })
+    close()
+  }
+
   const selectedIds = useEditorStore.getState().selectedLayerIds
   const hasMultipleSelected = selectedIds.length > 1
+  const canSwapObject = (() => {
+    if (!layerId) return false
+    const project = useProjectStore.getState().project
+    if (!project) return false
+    const layer = project.layers.find((l) => l.id === layerId)
+    if (!layer) return false
+    const lt = getLayerType(layer)
+    if (lt !== 'shape' && lt !== 'symbol') return false
+    return (project.shapeObjects?.length ?? 0) >= 1
+  })()
   const hasShapeLayers = (() => {
     if (selectedIds.length === 0) return false
     const project = useProjectStore.getState().project
     if (!project) return false
     return selectedIds.some((id) => {
       const l = project.layers.find((layer) => layer.id === id)
-      return l?.type === 'shape'
+      return getLayerType(l!) === 'shape'
     })
   })()
 
@@ -173,15 +197,17 @@ export default function CanvasContextMenu(): React.ReactElement | null {
     if (!layer) return
 
     // Already a symbol — save directly
-    if (layer.type === 'symbol' && layer.symbolId) {
-      useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'symbol', itemId: layer.symbolId })
+    if (getLayerType(layer) === 'symbol' && getLayerSymbolId(layer, 0)) {
+      useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'symbol', itemId: getLayerSymbolId(layer, 0)! })
       close()
       return
     }
 
     // Already a shape object — save directly
-    if (layer.shapeObjectId) {
-      useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'shapeObject', itemId: layer.shapeObjectId })
+    const currentFrame = useEditorStore.getState().currentFrame
+    const shapeObjId = getLayerShapeObjectId(layer, currentFrame)
+    if (shapeObjId) {
+      useEditorStore.getState().setShowSaveToUnitDialog({ itemType: 'shapeObject', itemId: shapeObjId })
       close()
       return
     }
@@ -217,11 +243,12 @@ export default function CanvasContextMenu(): React.ReactElement | null {
         { property: 'opacity', keyframes: [{ frame: 0, value: 1, easing: 'step' }] }
       ]
 
+      const ciId = generateId()
       draft.layers.push({
         id: symbolLayerId,
         name,
-        type: 'symbol' as const,
-        symbolId,
+        contentItems: [{ id: ciId, name, content: { type: 'symbol' as const, symbolId } }],
+        contentKeyframes: [{ frame: originalLayer.startFrame, contentItemId: ciId }],
         visible: true,
         locked: false,
         order: originalLayer.order,
@@ -249,6 +276,9 @@ export default function CanvasContextMenu(): React.ReactElement | null {
             <MenuItem onClick={handleCreateObject}>Save to Objects</MenuItem>
           )}
           <MenuItem onClick={handleSaveToUnit}>Save to Unit</MenuItem>
+          {canSwapObject && (
+            <MenuItem onClick={handleSwapObject}>Swap Object</MenuItem>
+          )}
           <MenuSeparator />
           <MenuItem onClick={handleBringToFront}>Bring to Front</MenuItem>
           <MenuItem onClick={handleSendToBack}>Send to Back</MenuItem>

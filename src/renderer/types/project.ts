@@ -62,12 +62,46 @@ export interface FilterConfig {
   glowOuterStrength?: number
 }
 
-// ── Asset Swap (frame-by-frame symbol swapping) ───────────────────────────
+// ── Content System (unified content palette + timeline) ──────────────────
 
+export type ContentType = 'shape' | 'shapeObject' | 'symbol' | 'image'
+
+export type ContentPayload =
+  | { type: 'shape'; shapeData: ShapeData }
+  | { type: 'shapeObject'; shapeObjectId: string }
+  | { type: 'symbol'; symbolId: string }
+  | { type: 'image'; assetId: string }
+
+/** A content item in the layer's palette of available content */
+export interface ContentItem {
+  id: string
+  name: string
+  content: ContentPayload
+}
+
+/** Which content item is active at a given frame (hold-by-default) */
+export interface ContentKeyframe {
+  frame: number
+  contentItemId: string   // references ContentItem.id in this layer's contentItems
+}
+
+// ── Legacy types (kept for migration of old .animate files) ──────────────
+
+/** @deprecated Use contentItems/contentKeyframes instead */
 export interface AssetSwap {
   startFrame: number
   endFrame: number
   assetId: string
+}
+
+/** @deprecated Use contentItems/contentKeyframes instead */
+export interface ShapeObjectSwap {
+  frame: number
+  shapeObjectId: string
+  shapeData: ShapeData
+  tracks?: PropertyTrack[]
+  offsetX?: number
+  offsetY?: number
 }
 
 // ── Shape Keyframe (morph shapes) ─────────────────────────────────────────
@@ -86,6 +120,8 @@ export interface ShapeObjectDef {
   originX: number
   originY: number
   layers?: Layer[]
+  /** Associated symbol ID for objects with independent animation */
+  symbolId?: string
 }
 
 // ── Unit Definition (grouping of objects/symbols) ─────────────────────────
@@ -115,10 +151,6 @@ export type LayerType = 'image' | 'text' | 'shape' | 'symbol'
 export interface Layer {
   id: string
   name: string
-  type: LayerType
-  assetId?: string
-  textData?: TextData
-  shapeData?: ShapeData
   visible: boolean
   locked: boolean
   order: number
@@ -126,38 +158,46 @@ export interface Layer {
   endFrame: number
   tracks: PropertyTrack[]
 
-  // Blend mode
-  blendMode?: string
+  // ── Content system ──
+  contentItems: ContentItem[]
+  contentKeyframes: ContentKeyframe[]
 
-  // Color transform / tint
+  // Text stays as direct property (not content-swappable)
+  textData?: TextData
+
+  // ── Appearance ──
+  blendMode?: string
   tintColor?: string
   tintAmount?: number
-
-  // Filters
   filters?: FilterConfig[]
 
-  // Frame-by-frame asset swapping
-  assetSwaps?: AssetSwap[]
-
-  // Masking
+  // ── Masking ──
   isMask?: boolean
   maskLayerId?: string
 
-  // Morph shapes
+  // ── Shape morphing ──
   shapeKeyframes?: ShapeKeyframe[]
 
-  // Nested symbol timeline
-  symbolId?: string
-
-  // Shape object reference (for object layers)
-  shapeObjectId?: string
-
-  // Outline mode (show layer as colored outline)
+  // ── Display modes ──
   outlineMode?: boolean
   outlineColor?: string
-
-  // Semi-transparent view mode (Shift+click eye)
   semiTransparent?: boolean
+
+  // ── Legacy fields (kept for migration of old .animate files) ──
+  /** @deprecated Derived from contentItems — use getLayerType() */
+  type?: LayerType
+  /** @deprecated Use contentItems with type:'image' */
+  assetId?: string
+  /** @deprecated Use contentItems with type:'shape' */
+  shapeData?: ShapeData
+  /** @deprecated Use contentItems with type:'symbol' */
+  symbolId?: string
+  /** @deprecated Use contentItems with type:'shapeObject' */
+  shapeObjectId?: string
+  /** @deprecated Use contentItems/contentKeyframes */
+  assetSwaps?: AssetSwap[]
+  /** @deprecated Use contentItems/contentKeyframes */
+  shapeObjectSwaps?: ShapeObjectSwap[]
 }
 
 export interface Asset {

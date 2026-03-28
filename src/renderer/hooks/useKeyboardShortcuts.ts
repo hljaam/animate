@@ -118,7 +118,11 @@ export function useKeyboardShortcuts(): void {
             for (const layerId of selectedLayerIds) {
               const layer = draft.layers.find((l) => l.id === layerId)
               if (!layer) continue
-              layer.endFrame += 1
+              if (currentFrame > layer.endFrame) {
+                layer.endFrame = currentFrame
+              } else {
+                layer.endFrame += 1
+              }
             }
             const maxEnd = Math.max(...draft.layers.map((l) => l.endFrame))
             if (maxEnd >= draft.durationFrames) draft.durationFrames = maxEnd + 1

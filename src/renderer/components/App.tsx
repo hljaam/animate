@@ -10,6 +10,7 @@ import NewProjectDialog from './Modals/NewProjectDialog'
 import ExportProgressModal from './Modals/ExportProgressModal'
 import CreateObjectDialog from './Modals/CreateObjectDialog'
 import SaveToUnitDialog from './Modals/SaveToUnitDialog'
+import SwapObjectDialog from './Modals/SwapObjectDialog'
 import CommandConsole from './CommandConsole/CommandConsole'
 import CanvasContextMenu from './Stage/CanvasContextMenu'
 import ResizeDivider from './ResizeDivider'
@@ -30,6 +31,7 @@ export default function App(): React.ReactElement {
   const showCommandConsole = useEditorStore((s) => s.showCommandConsole)
   const showCreateObjectDialog = useEditorStore((s) => s.showCreateObjectDialog)
   const showSaveToUnitDialog = useEditorStore((s) => s.showSaveToUnitDialog)
+  const showSwapObjectDialog = useEditorStore((s) => s.showSwapObjectDialog)
   const [activePanel, setActivePanel] = useState('library')
 
   const [leftWidth, setLeftWidth] = useState(220)
@@ -77,6 +79,7 @@ export default function App(): React.ReactElement {
       {isExporting && <ExportProgressModal />}
       {showCreateObjectDialog && <CreateObjectDialog />}
       {showSaveToUnitDialog && <SaveToUnitDialog />}
+      {showSwapObjectDialog && <SwapObjectDialog />}
       {showCommandConsole && <CommandConsole />}
       <CanvasContextMenu />
     </div>

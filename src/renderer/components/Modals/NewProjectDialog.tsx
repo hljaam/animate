@@ -55,6 +55,9 @@ export default function NewProjectDialog(): React.ReactElement {
     setShowDialog(false)
     useEditorStore.getState().setCurrentFrame(0)
     useEditorStore.getState().setSelectedLayerId(null)
+    useEditorStore.getState().setShowSwapObjectDialog(null)
+    useEditorStore.getState().setShowCreateObjectDialog(null)
+    useEditorStore.getState().setShowSaveToUnitDialog(null)
   }
 
   return (

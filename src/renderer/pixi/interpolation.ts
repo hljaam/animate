@@ -45,8 +45,10 @@ export function getInterpolatedProps(
     }
 
     // Step easing: hold the value until the next keyframe (no interpolation)
+    // But if we're exactly ON the "after" keyframe, use its value — that keyframe
+    // defines what the property is at that frame.
     if (before.easing === 'step') {
-      result[prop] = before.value
+      result[prop] = frame === after.frame ? after.value : before.value
       continue
     }
 

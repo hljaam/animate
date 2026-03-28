@@ -1,4 +1,4 @@
-import type { Layer, Asset, Project, PropertyTrack, TrackProperty, ShapeData, ShapeSegment, SymbolDef, ShapeObjectDef } from '../types/project'
+import type { Layer, Asset, Project, PropertyTrack, TrackProperty, ShapeData, ShapeSegment, SymbolDef, ShapeObjectDef, ContentItem, ContentKeyframe } from '../types/project'
 import { DEFAULT_EASING } from '../types/project'
 import { generateId } from './idGenerator'
 import { computeFitScale } from './autoScale'
@@ -10,23 +10,31 @@ function makeTrack(property: TrackProperty, value: number): PropertyTrack {
   }
 }
 
+function makeContentEntry(name: string, content: ContentItem['content']): { items: ContentItem[]; keyframes: ContentKeyframe[] } {
+  const itemId = generateId()
+  return {
+    items: [{ id: itemId, name, content }],
+    keyframes: [{ frame: 0, contentItemId: itemId }]
+  }
+}
+
 export function createImageLayer(asset: Asset, project: Project): Layer {
   const scale = computeFitScale(asset.width, asset.height, project.width, project.height)
   const cx = project.width / 2
   const cy = project.height / 2
-
   const layerCount = project.layers.length
+  const { items, keyframes } = makeContentEntry(asset.name, { type: 'image', assetId: asset.id })
 
   return {
     id: generateId(),
     name: asset.name,
-    type: 'image',
-    assetId: asset.id,
     visible: true,
     locked: false,
     order: layerCount,
     startFrame: 0,
     endFrame: project.durationFrames - 1,
+    contentItems: items,
+    contentKeyframes: keyframes,
     tracks: [
       makeTrack('x', cx),
       makeTrack('y', cy),
@@ -60,16 +68,18 @@ export function createRectangleLayer(project: Project, width = 200, height = 150
     originY: height / 2
   }
 
+  const { items, keyframes } = makeContentEntry('Rectangle', { type: 'shape', shapeData })
+
   return {
     id: generateId(),
     name: 'Rectangle',
-    type: 'shape',
-    shapeData,
     visible: true,
     locked: false,
     order: layerCount,
     startFrame: 0,
     endFrame: project.durationFrames - 1,
+    contentItems: items,
+    contentKeyframes: keyframes,
     tracks: [
       makeTrack('x', cx),
       makeTrack('y', cy),
@@ -87,7 +97,6 @@ export function createEllipseLayer(project: Project, width = 200, height = 150):
   const layerCount = project.layers.length
   const rx = width / 2
   const ry = height / 2
-  // Approximate ellipse with 4 cubic bezier arcs (kappa constant)
   const k = 0.5522847498
   const kx = rx * k
   const ky = ry * k
@@ -107,16 +116,18 @@ export function createEllipseLayer(project: Project, width = 200, height = 150):
     originY: ry
   }
 
+  const { items, keyframes } = makeContentEntry('Ellipse', { type: 'shape', shapeData })
+
   return {
     id: generateId(),
     name: 'Ellipse',
-    type: 'shape',
-    shapeData,
     visible: true,
     locked: false,
     order: layerCount,
     startFrame: 0,
     endFrame: project.durationFrames - 1,
+    contentItems: items,
+    contentKeyframes: keyframes,
     tracks: [
       makeTrack('x', cx),
       makeTrack('y', cy),
@@ -132,17 +143,18 @@ export function createSymbolLayer(symbolDef: SymbolDef, project: Project): Layer
   const cx = project.width / 2
   const cy = project.height / 2
   const layerCount = project.layers.length
+  const { items, keyframes } = makeContentEntry(symbolDef.name, { type: 'symbol', symbolId: symbolDef.id })
 
   return {
     id: generateId(),
     name: symbolDef.name,
-    type: 'symbol',
-    symbolId: symbolDef.id,
     visible: true,
     locked: false,
     order: layerCount,
     startFrame: 0,
     endFrame: project.durationFrames - 1,
+    contentItems: items,
+    contentKeyframes: keyframes,
     tracks: [
       makeTrack('x', cx),
       makeTrack('y', cy),
@@ -158,23 +170,18 @@ export function createShapeObjectLayer(shapeObj: ShapeObjectDef, project: Projec
   const cx = project.width / 2
   const cy = project.height / 2
   const layerCount = project.layers.length
-
-  const shapeData: ShapeData = {
-    paths: JSON.parse(JSON.stringify(shapeObj.paths)),
-    originX: shapeObj.originX,
-    originY: shapeObj.originY
-  }
+  const { items, keyframes } = makeContentEntry(shapeObj.name, { type: 'shapeObject', shapeObjectId: shapeObj.id })
 
   return {
     id: generateId(),
     name: shapeObj.name,
-    type: 'shape',
-    shapeData,
     visible: true,
     locked: false,
     order: layerCount,
     startFrame: 0,
     endFrame: project.durationFrames - 1,
+    contentItems: items,
+    contentKeyframes: keyframes,
     tracks: [
       makeTrack('x', cx),
       makeTrack('y', cy),
@@ -194,7 +201,6 @@ export function createTextLayer(project: Project): Layer {
   return {
     id: generateId(),
     name: 'Text Layer',
-    type: 'text',
     textData: {
       text: 'Edit me',
       font: 'Arial',
@@ -206,6 +212,8 @@ export function createTextLayer(project: Project): Layer {
     order: layerCount,
     startFrame: 0,
     endFrame: project.durationFrames - 1,
+    contentItems: [],
+    contentKeyframes: [],
     tracks: [
       makeTrack('x', cx),
       makeTrack('y', cy),

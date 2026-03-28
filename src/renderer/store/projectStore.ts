@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { produce, produceWithPatches, enablePatches } from 'immer'
 import type { Project, Layer, Asset, PropertyTrack, TrackProperty, EasingType, Keyframe, SymbolDef } from '../types/project'
 import { CommandHistory } from './commands/Command'
+import { migrateProject } from '../utils/migrateProject'
 
 enablePatches()
 
@@ -49,7 +50,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
   setProject: (project) => {
     get().history.clear()
-    set({ project })
+    set({ project: migrateProject(project) })
   },
 
   updateProjectSettings: (settings) => {

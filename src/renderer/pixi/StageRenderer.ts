@@ -6,6 +6,7 @@ import { getInterpolatedProps } from './interpolation'
 import { useEditorStore } from '../store/editorStore'
 import { TransformHandles } from './TransformHandles'
 import type { DragMode } from './TransformHandles'
+import { getActiveContent, getLayerType, getLayerShapeData, getLayerAssetId, getLayerSymbolId, getLayerShapeObjectId, isTextLayer } from '../utils/layerContent'
 
 type SelectionCallback = (layerId: string | null, shiftKey?: boolean) => void
 type TransformCallback = (layerId: string, props: Partial<InterpolatedProps>) => void
@@ -63,6 +64,16 @@ export class StageRenderer {
   private selectedLayerIds: string[] = []
   private dirty = true
 
+  // Double-click detection
+  private lastClickTime = 0
+  private lastClickLayerId: string | null = null
+
+  // Track active content item per layer to detect content changes
+  private layerContentCache = new Map<string, string>()
+
+  // Cache resolved ShapeData per shapeObjectId to avoid unstable references
+  private shapeObjectDataCache = new Map<string, { ref: any; data: ShapeData }>()
+
   async init(
     container: HTMLDivElement,
     width: number,
@@ -117,6 +128,27 @@ export class StageRenderer {
         }
       }
       if (e.target === this.app.stage) {
+        // Double-click on empty stage: exit symbol/object editing
+        const now = Date.now()
+        if (
+          this.lastClickLayerId === null &&
+          now - this.lastClickTime < 400
+        ) {
+          const es = useEditorStore.getState()
+          if (es.editingSymbolId) {
+            es.setEditingSymbolId(null)
+            this.lastClickTime = 0
+            return
+          }
+          if (es.editingObjectId) {
+            es.setEditingObjectId(null)
+            this.lastClickTime = 0
+            return
+          }
+        }
+        this.lastClickTime = now
+        this.lastClickLayerId = null
+
         // Start marquee selection if select tool is active
         const activeTool = useEditorStore.getState().activeTool
         if (activeTool === 'select') {
@@ -176,7 +208,6 @@ export class StageRenderer {
   private _prevLayerIds: string | null = null
 
   private renderScene(project: Project, frame: number): void {
-    console.log('[renderScene] layers=', project.layers.length, 'frame=', frame, 'containers=', this.layerContainers.size)
     // Update background — workspace is dark gray, artboard is distinct
     this.app.renderer.background.color = '#111111'
     this.drawStageBg(project.width, project.height, project.backgroundColor || '#000000')
@@ -190,7 +221,6 @@ export class StageRenderer {
     // Detect layer set changes and force full rebuild
     const layerIdKey = [...activeIds].sort().join(',')
     if (this._prevLayerIds !== null && this._prevLayerIds !== layerIdKey) {
-      console.log('[renderScene] Layer set changed, clearing all caches')
       for (const [, container] of this.layerContainers) {
         this.worldContainer.removeChild(container)
       }
@@ -198,6 +228,7 @@ export class StageRenderer {
       this.spriteCache.clear()
       this.textCache.clear()
       this.shapeCache.clear()
+      this.layerContentCache.clear()
     }
     this._prevLayerIds = layerIdKey
 
@@ -209,7 +240,38 @@ export class StageRenderer {
         this.spriteCache.delete(id)
         this.textCache.delete(id)
         this.shapeCache.delete(id)
+        this.layerContentCache.delete(id)
       }
+    }
+
+    // Detect content changes (e.g. content item swap between frames) and
+    // tear down stale caches so the renderer rebuilds with the new content.
+    for (const layer of sortedLayers) {
+      const activeItem = getActiveContent(layer, frame)
+      const currentContentId = activeItem?.id ?? (isTextLayer(layer) ? '__text__' : '__none__')
+      const prevContentId = this.layerContentCache.get(layer.id)
+      if (prevContentId != null && prevContentId !== currentContentId) {
+        const container = this.layerContainers.get(layer.id)
+        if (container) {
+          this.worldContainer.removeChild(container)
+          container.destroy({ children: true })
+        }
+        this.layerContainers.delete(layer.id)
+        this.spriteCache.delete(layer.id)
+        this.textCache.delete(layer.id)
+        this.shapeCache.delete(layer.id)
+        // Also clean prefixed symbol sub-caches
+        for (const [key] of this.shapeCache) {
+          if (key.startsWith(layer.id + ':')) this.shapeCache.delete(key)
+        }
+        for (const [key] of this.spriteCache) {
+          if (key.startsWith(layer.id + ':')) this.spriteCache.delete(key)
+        }
+        for (const [key] of this.textCache) {
+          if (key.startsWith(layer.id + ':')) this.textCache.delete(key)
+        }
+      }
+      this.layerContentCache.set(layer.id, currentContentId)
     }
 
     // ── Onion Skinning ──
@@ -243,19 +305,51 @@ export class StageRenderer {
           if (ghostFrame < layer.startFrame || ghostFrame > layer.endFrame) continue
 
           const ghostProps = getInterpolatedProps(layer.tracks, ghostFrame, { ...DEFAULT_LAYER_PROPS })
-          const ghostGfx = new PIXI.Graphics()
 
-          if (layer.type === 'shape' && layer.shapeData) {
-            this.drawShapeGraphics(ghostGfx, layer.shapeData, layer)
-            ghostGfx.x = ghostProps.x
-            ghostGfx.y = ghostProps.y
-            ghostGfx.scale.set(ghostProps.scaleX, ghostProps.scaleY)
-            ghostGfx.rotation = ghostProps.rotation
-            ghostGfx.alpha = ghostProps.opacity
-            ghostGfx.tint = offset < 0 ? 0xff6666 : 0x66ff66
-            ghostContainer.addChild(ghostGfx)
-          } else if (layer.type === 'image' && layer.assetId) {
-            const asset = project.assets.find((a) => a.id === layer.assetId)
+          if (isTextLayer(layer) && layer.textData) {
+            const ghostText = new PIXI.Text({
+              text: layer.textData.text,
+              style: { fontFamily: layer.textData.font, fontSize: layer.textData.size, fill: offset < 0 ? '#ff6666' : '#66ff66' }
+            })
+            ghostText.anchor.set(0.5, 0.5)
+            ghostText.x = ghostProps.x
+            ghostText.y = ghostProps.y
+            ghostText.scale.set(ghostProps.scaleX, ghostProps.scaleY)
+            ghostText.rotation = ghostProps.rotation
+            ghostText.alpha = ghostProps.opacity
+            ghostContainer.addChild(ghostText)
+            continue
+          }
+
+          const ghostContent = getActiveContent(layer, ghostFrame)
+          if (!ghostContent) continue
+          const ct = ghostContent.content
+
+          if (ct.type === 'shape' || ct.type === 'shapeObject') {
+            const shapeData = ct.type === 'shape'
+              ? ct.shapeData
+              : (() => {
+                  const obj = project.shapeObjects?.find((o) => o.id === ct.shapeObjectId)
+                  if (!obj) return undefined
+                  const cached = this.shapeObjectDataCache.get(obj.id)
+                  if (cached && cached.ref === obj) return cached.data
+                  const data: ShapeData = { paths: obj.paths, originX: obj.originX, originY: obj.originY }
+                  this.shapeObjectDataCache.set(obj.id, { ref: obj, data })
+                  return data
+                })()
+            if (shapeData) {
+              const ghostGfx = new PIXI.Graphics()
+              this.drawShapeGraphics(ghostGfx, shapeData, layer)
+              ghostGfx.x = ghostProps.x
+              ghostGfx.y = ghostProps.y
+              ghostGfx.scale.set(ghostProps.scaleX, ghostProps.scaleY)
+              ghostGfx.rotation = ghostProps.rotation
+              ghostGfx.alpha = ghostProps.opacity
+              ghostGfx.tint = offset < 0 ? 0xff6666 : 0x66ff66
+              ghostContainer.addChild(ghostGfx)
+            }
+          } else if (ct.type === 'image') {
+            const asset = project.assets.find((a) => a.id === ct.assetId)
             if (asset) {
               const tex = this.textureCache.get(asset.id)
               if (tex) {
@@ -270,19 +364,8 @@ export class StageRenderer {
                 ghostContainer.addChild(ghostSprite)
               }
             }
-          } else if (layer.type === 'text' && layer.textData) {
-            const ghostText = new PIXI.Text({
-              text: layer.textData.text,
-              style: { fontFamily: layer.textData.font, fontSize: layer.textData.size, fill: offset < 0 ? '#ff6666' : '#66ff66' }
-            })
-            ghostText.anchor.set(0.5, 0.5)
-            ghostText.x = ghostProps.x
-            ghostText.y = ghostProps.y
-            ghostText.scale.set(ghostProps.scaleX, ghostProps.scaleY)
-            ghostText.rotation = ghostProps.rotation
-            ghostText.alpha = ghostProps.opacity
-            ghostContainer.addChild(ghostText)
           }
+          // Symbol ghost rendering skipped for simplicity (same as before)
         }
 
         ghostContainer.alpha = ghostAlpha
@@ -313,24 +396,50 @@ export class StageRenderer {
         props.opacity = props.opacity * 0.25
       }
 
-      if (layer.type === 'image') {
-        // Resolve effective asset (supports frame-by-frame symbol swapping)
-        let effectiveAssetId = layer.assetId
-        if (layer.assetSwaps?.length) {
-          const swap = layer.assetSwaps.find(
-            (s) => frame >= s.startFrame && frame <= s.endFrame
-          )
-          if (swap) effectiveAssetId = swap.assetId
-        }
-        if (effectiveAssetId) {
-          const asset = project.assets.find((a) => a.id === effectiveAssetId)
-          if (asset) this.renderImageLayer(layer, asset, props)
-        }
-      } else if (layer.type === 'text' && layer.textData) {
+      // ── Content-based rendering via contentItems/contentKeyframes ──
+
+      // Text layers: textData is a direct property, not content-swappable
+      if (isTextLayer(layer) && layer.textData) {
         this.renderTextLayer(layer, props)
-      } else if (layer.type === 'shape') {
-        // Support morph shapes (shape keyframes)
-        let activeShapeData = layer.shapeData
+        continue
+      }
+
+      // Resolve active content at this frame
+      const activeItem = getActiveContent(layer, frame)
+      if (!activeItem) {
+        const container = this.layerContainers.get(layer.id)
+        if (container) container.visible = false
+        continue
+      }
+
+      const ct = activeItem.content
+
+      if (ct.type === 'image') {
+        const asset = project.assets.find((a) => a.id === ct.assetId)
+        if (asset) this.renderImageLayer(layer, asset, props)
+      } else if (ct.type === 'shape' || ct.type === 'shapeObject') {
+        // Resolve shape data (inline or from shapeObject reference)
+        let activeShapeData: ShapeData | undefined
+        if (ct.type === 'shape') {
+          activeShapeData = ct.shapeData
+        } else {
+          const obj = project.shapeObjects?.find((o) => o.id === ct.shapeObjectId)
+          if (obj) {
+            // Use a stable cached ShapeData reference per shapeObjectId
+            // to avoid constant cache invalidation from new object literals
+            const cached = this.shapeObjectDataCache.get(obj.id)
+            if (cached && cached.ref === obj) {
+              activeShapeData = cached.data
+            } else {
+              const data: ShapeData = { paths: obj.paths, originX: obj.originX, originY: obj.originY }
+              this.shapeObjectDataCache.set(obj.id, { ref: obj, data })
+              activeShapeData = data
+            }
+          }
+        }
+
+        // Shape morphing (shapeKeyframes override base shape data)
+        let shapeDataChanged = false
         if (layer.shapeKeyframes?.length) {
           const sorted = [...layer.shapeKeyframes].sort((a, b) => a.frame - b.frame)
           let match = sorted[0]
@@ -339,23 +448,23 @@ export class StageRenderer {
             else break
           }
           activeShapeData = match.shapeData
+          shapeDataChanged = true
         }
+
         if (activeShapeData) {
-          // For morph shapes, invalidate cache if shape changed
-          if (layer.shapeKeyframes?.length) {
-            const cacheKey = layer.id
-            const cached = this.shapeCache.get(cacheKey)
+          if (shapeDataChanged) {
+            const cached = this.shapeCache.get(layer.id)
             if (cached && (cached as any)._lastShapeData !== activeShapeData) {
               cached.clear()
               this.drawShapeGraphics(cached, activeShapeData, layer)
               ;(cached as any)._lastShapeData = activeShapeData
+              ;(cached as any)._shapeDataRef = activeShapeData
             }
           }
-          this.renderShapeLayer({ ...layer, shapeData: activeShapeData }, props)
+          this.renderShapeLayer(layer, props, activeShapeData)
         }
-      } else if (layer.type === 'symbol' && layer.symbolId && project.symbols) {
-        // Nested symbol timeline rendering
-        const symbolDef = project.symbols.find((s) => s.id === layer.symbolId)
+      } else if (ct.type === 'symbol' && project.symbols) {
+        const symbolDef = project.symbols.find((s) => s.id === ct.symbolId)
         if (symbolDef) {
           this.renderSymbolLayer(layer, symbolDef, project, frame, props)
         }
@@ -491,7 +600,10 @@ export class StageRenderer {
     this.applyLayerEffects(text, layer)
   }
 
-  private renderShapeLayer(layer: Layer, props: InterpolatedProps): void {
+  private renderShapeLayer(layer: Layer, props: InterpolatedProps, shapeDataOverride?: ShapeData): void {
+    const shapeData = shapeDataOverride ?? getLayerShapeData(layer, 0, this.currentProject?.shapeObjects ?? undefined)
+    if (!shapeData) return
+
     let container = this.layerContainers.get(layer.id)
     let gfx = this.shapeCache.get(layer.id)
 
@@ -501,9 +613,6 @@ export class StageRenderer {
       gfx.cursor = 'pointer'
       gfx.on('pointerdown', (e: PIXI.FederatedPointerEvent) => this.handlePointerDown(e, layer.id))
       this.bindHoverEvents(gfx, layer.id)
-
-      // Draw all shape paths in document order to preserve stacking
-      const shapeData = layer.shapeData!
 
       // Collect bitmap fill asset IDs that need texture loading
       const bitmapFillAssetIds = new Set<string>()
@@ -543,7 +652,7 @@ export class StageRenderer {
         drawPaths()
       }
 
-      ;(gfx as any)._shapeDataRef = layer.shapeData
+      ;(gfx as any)._shapeDataRef = shapeData
       this.shapeCache.set(layer.id, gfx)
 
       container = new PIXI.Container()
@@ -552,16 +661,17 @@ export class StageRenderer {
       this.worldContainer.addChild(container)
     } else {
       // Invalidate cache if shapeData changed (e.g. user edited fill/stroke)
-      if ((gfx as any)._shapeDataRef !== layer.shapeData) {
+      if ((gfx as any)._shapeDataRef !== shapeData) {
         this.shapeCache.delete(layer.id)
         this.layerContainers.get(layer.id)?.destroy({ children: true })
         this.layerContainers.delete(layer.id)
-        return this.renderShapeLayer(layer, props)
+        return this.renderShapeLayer(layer, props, shapeData)
       }
       container = this.layerContainers.get(layer.id)!
     }
 
     container.visible = true
+    gfx.visible = true
     container.x = props.x
     container.y = props.y
     container.scale.set(props.scaleX, props.scaleY)
@@ -616,38 +726,43 @@ export class StageRenderer {
 
       // Use a prefixed cache key to avoid conflicts with main timeline
       const cacheKey = layer.id + ':' + symLayer.id
-      if (symLayer.type === 'shape' && symLayer.shapeData) {
-        let gfx = this.shapeCache.get(cacheKey)
-        if (!gfx) {
-          gfx = new PIXI.Graphics()
-          this.drawShapeGraphics(gfx, symLayer.shapeData, symLayer)
-          this.shapeCache.set(cacheKey, gfx)
-          container.addChild(gfx)
+      const symContentType = getLayerType(symLayer)
 
-          // Load bitmap fill textures if needed
-          for (const path of symLayer.shapeData.paths) {
-            if (path.bitmapFillAssetId && !this.textureCache.has(path.bitmapFillAssetId)) {
-              const asset = project.assets.find((a) => a.id === path.bitmapFillAssetId)
-              if (asset) {
-                this.loadTextureViaImg(asset.localBundlePath).then((tex) => {
-                  this.textureCache.set(path.bitmapFillAssetId!, tex)
-                  // Redraw with loaded texture
-                  gfx!.clear()
-                  this.drawShapeGraphics(gfx!, symLayer.shapeData!, symLayer)
-                  this.dirty = true
-                })
+      if ((symContentType === 'shape') && !isTextLayer(symLayer)) {
+        const symShapeData = getLayerShapeData(symLayer, internalFrame, project.shapeObjects ?? undefined)
+        if (symShapeData) {
+          let gfx = this.shapeCache.get(cacheKey)
+          if (!gfx) {
+            gfx = new PIXI.Graphics()
+            this.drawShapeGraphics(gfx, symShapeData, symLayer)
+            this.shapeCache.set(cacheKey, gfx)
+            container.addChild(gfx)
+
+            // Load bitmap fill textures if needed
+            for (const path of symShapeData.paths) {
+              if (path.bitmapFillAssetId && !this.textureCache.has(path.bitmapFillAssetId)) {
+                const asset = project.assets.find((a) => a.id === path.bitmapFillAssetId)
+                if (asset) {
+                  this.loadTextureViaImg(asset.localBundlePath).then((tex) => {
+                    this.textureCache.set(path.bitmapFillAssetId!, tex)
+                    gfx!.clear()
+                    this.drawShapeGraphics(gfx!, symShapeData, symLayer)
+                    this.dirty = true
+                  })
+                }
               }
             }
           }
+          gfx.visible = true
+          gfx.x = symProps.x - symShapeData.originX
+          gfx.y = symProps.y - symShapeData.originY
+          gfx.scale.set(symProps.scaleX, symProps.scaleY)
+          gfx.rotation = symProps.rotation
+          gfx.alpha = symProps.opacity
         }
-        gfx.visible = true
-        gfx.x = symProps.x - symLayer.shapeData.originX
-        gfx.y = symProps.y - symLayer.shapeData.originY
-        gfx.scale.set(symProps.scaleX, symProps.scaleY)
-        gfx.rotation = symProps.rotation
-        gfx.alpha = symProps.opacity
-      } else if (symLayer.type === 'image' && symLayer.assetId) {
-        const asset = project.assets.find((a) => a.id === symLayer.assetId)
+      } else if (symContentType === 'image') {
+        const symAssetId = getLayerAssetId(symLayer, internalFrame)
+        const asset = symAssetId ? project.assets.find((a) => a.id === symAssetId) : undefined
         if (!asset) continue
         let sprite = this.spriteCache.get(cacheKey)
         if (!sprite) {
@@ -671,7 +786,7 @@ export class StageRenderer {
         sprite.scale.set(symProps.scaleX, symProps.scaleY)
         sprite.rotation = symProps.rotation
         sprite.alpha = symProps.opacity
-      } else if (symLayer.type === 'text' && symLayer.textData) {
+      } else if (isTextLayer(symLayer) && symLayer.textData) {
         let text = this.textCache.get(cacheKey)
         if (!text) {
           text = new PIXI.Text({
@@ -686,7 +801,6 @@ export class StageRenderer {
           this.textCache.set(cacheKey, text)
           container.addChild(text)
         }
-        // Update text content/style in case it changed
         text.text = symLayer.textData.text
         const style = text.style as PIXI.TextStyle
         style.fontFamily = symLayer.textData.font ?? 'Arial'
@@ -699,9 +813,9 @@ export class StageRenderer {
         text.scale.set(symProps.scaleX, symProps.scaleY)
         text.rotation = symProps.rotation
         text.alpha = symProps.opacity
-      } else if (symLayer.type === 'symbol' && symLayer.symbolId && project.symbols) {
-        // Recursive nested symbol rendering (with depth guard)
-        const nestedSymbolDef = project.symbols.find((s) => s.id === symLayer.symbolId)
+      } else if (symContentType === 'symbol' && project.symbols) {
+        const symSymbolId = getLayerSymbolId(symLayer, internalFrame)
+        const nestedSymbolDef = symSymbolId ? project.symbols.find((s) => s.id === symSymbolId) : undefined
         if (nestedSymbolDef) {
           const depth = (layer as any)._symbolDepth ?? 0
           if (depth < 8) {
@@ -963,6 +1077,32 @@ export class StageRenderer {
       this.onContextMenu?.(layerId, e.clientX, e.clientY)
       return
     }
+
+    // Double-click detection: enter symbol/object editing
+    const now = Date.now()
+    if (
+      this.lastClickLayerId === layerId &&
+      now - this.lastClickTime < 400 &&
+      layer
+    ) {
+      this.lastClickTime = 0
+      this.lastClickLayerId = null
+      const layerType = getLayerType(layer)
+      if (layerType === 'symbol') {
+        const symId = getLayerSymbolId(layer, this.currentFrame)
+        if (symId) {
+          useEditorStore.getState().setEditingSymbolId(symId)
+          return
+        }
+      }
+      const objId = getLayerShapeObjectId(layer, this.currentFrame)
+      if (objId) {
+        useEditorStore.getState().setEditingObjectId(objId)
+        return
+      }
+    }
+    this.lastClickTime = now
+    this.lastClickLayerId = layerId
 
     // Locked layers can be selected but not transformed
     if (isLocked) {

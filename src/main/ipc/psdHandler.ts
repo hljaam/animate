@@ -57,8 +57,8 @@ interface AssetResult {
 interface LayerResult {
   id: string
   name: string
-  type: 'image'
-  assetId: string
+  contentItems: Array<{ id: string; name: string; content: { type: 'image'; assetId: string } }>
+  contentKeyframes: Array<{ frame: number; contentItemId: string }>
   visible: boolean
   locked: boolean
   order: number
@@ -178,11 +178,13 @@ async function importPsd(psdPath: string, projectName: string): Promise<object> 
     const layerOpacity = (layer.opacity ?? 255) / 255
     const visible = !layer.isHidden && parentVisible
 
+    const contentItemId = nanoid()
+
     layers.push({
       id: nanoid(),
       name: layerName,
-      type: 'image',
-      assetId,
+      contentItems: [{ id: contentItemId, name: layerName, content: { type: 'image', assetId } }],
+      contentKeyframes: [{ frame: 0, contentItemId }],
       visible,
       locked: false,
       order: order++,

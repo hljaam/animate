@@ -124,7 +124,6 @@ export function usePixiStage(containerRef: React.RefObject<HTMLDivElement | null
 
         unsubProject = useProjectStore.subscribe((state) => {
           if (!state.project || !renderer) return
-          console.log('[usePixiStage] subscription fired, layers=', state.project.layers.length)
           const es = useEditorStore.getState()
           renderer.setScene(state.project, es.currentFrame, es.selectedLayerIds)
         })

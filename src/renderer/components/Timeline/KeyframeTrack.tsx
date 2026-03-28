@@ -246,6 +246,22 @@ export default function KeyframeTrack({ layer, pixelsPerFrame, totalFrames }: Pr
           )
         })}
 
+        {/* End-of-layer marker — small rectangle, distinct from keyframe diamonds */}
+        <div
+          style={{
+            position: 'absolute',
+            left: (layer.endFrame + 1) * pixelsPerFrame - 3,
+            top: '50%',
+            width: 5,
+            height: 10,
+            transform: 'translateY(-50%)',
+            background: 'rgba(255,255,255,0.25)',
+            borderRadius: 1,
+            zIndex: 2,
+            pointerEvents: 'none'
+          }}
+        />
+
         {/* Ghost dot during drag */}
         {dragState && dragState.sourceFrame !== dragState.targetFrame && (
           <div

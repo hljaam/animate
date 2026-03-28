@@ -86,7 +86,9 @@ async function importSwfViaFfdec(
   }> = []
 
   const processedLayers = layers.map((layer) => {
-    if (layer.type !== 'shape' || !layer.shapeData) return layer
+    // Check if the layer is a shape by looking at its contentItems
+    const shapeContent = layer.contentItems?.find((ci) => ci.content.type === 'shape')
+    if (!shapeContent) return layer
 
     // Create a SymbolDef wrapping this shape
     const symbolId = nanoid()
@@ -108,6 +110,7 @@ async function importSwfViaFfdec(
       return t
     })
 
+    const innerContentItemId = nanoid()
     symbols.push({
       id: symbolId,
       name: symbolName,
@@ -119,6 +122,8 @@ async function importSwfViaFfdec(
           ...layer,
           id: nanoid(),
           name: 'Shape',
+          contentItems: [{ id: innerContentItemId, name: 'Shape', content: { type: 'shape', shapeData: shapeContent.content.shapeData } }],
+          contentKeyframes: [{ frame: 0, contentItemId: innerContentItemId }],
           order: 0,
           startFrame: 0,
           endFrame: (header.frameCount || 1) - 1,
@@ -128,11 +133,12 @@ async function importSwfViaFfdec(
     })
 
     // Replace with a symbol layer instance
+    const outerContentItemId = nanoid()
     return {
       id: layer.id,
       name: symbolName,
-      type: 'symbol' as const,
-      symbolId,
+      contentItems: [{ id: outerContentItemId, name: symbolName, content: { type: 'symbol', symbolId } }],
+      contentKeyframes: [{ frame: layer.startFrame, contentItemId: outerContentItemId }],
       visible: layer.visible,
       locked: layer.locked,
       order: layer.order,

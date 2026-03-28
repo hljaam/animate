@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import type { Layer } from '../../types/project'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
+import { getLayerType, getLayerSymbolId, getLayerShapeObjectId } from '../../utils/layerContent'
 import KeyframeTrack from './KeyframeTrack'
 import KeyframeContextMenu from './KeyframeContextMenu'
 
@@ -177,10 +178,12 @@ export default function LayerRow({ layer, pixelsPerFrame, totalFrames, onDragSta
   }
 
   function handleDoubleClickRow(): void {
-    if (layer.type === 'symbol' && layer.symbolId) {
-      useEditorStore.getState().setEditingSymbolId(layer.symbolId)
-    } else if (layer.shapeObjectId) {
-      useEditorStore.getState().setEditingObjectId(layer.shapeObjectId)
+    const symId = getLayerSymbolId(layer, 0)
+    const objId = getLayerShapeObjectId(layer, 0)
+    if (getLayerType(layer) === 'symbol' && symId) {
+      useEditorStore.getState().setEditingSymbolId(symId)
+    } else if (objId) {
+      useEditorStore.getState().setEditingObjectId(objId)
     }
   }
 
@@ -303,7 +306,7 @@ export default function LayerRow({ layer, pixelsPerFrame, totalFrames, onDragSta
           </span>
 
           {/* Type icon */}
-          <LayerTypeIcon type={layer.type} />
+          <LayerTypeIcon type={getLayerType(layer)} />
 
           {/* Name (inline rename on double-click) */}
           {isRenaming ? (

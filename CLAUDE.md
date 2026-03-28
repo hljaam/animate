@@ -27,7 +27,7 @@ IPC is the only bridge between renderer and main. All file operations go through
 
 All IPC handlers are registered centrally in `src/main/ipc/index.ts` via `registerAllHandlers()`.
 
-Current IPC methods: `importAsset`, `importSwf`, `importPsd`, `saveProject`, `openProject`, `openScript`, `exportStart`, `exportFrame`, `exportFinalize`, `onExportProgress`.
+Current IPC methods (kebab-case channel names): `import-asset`, `import-swf`, `import-psd`, `save-project`, `open-project`, `open-script`, `export-start`, `export-frame`, `export-finalize`, `export-progress` (event). Handlers are registered in five groups: `registerAssetHandlers()`, `registerProjectHandlers()`, `registerExportHandlers()`, `registerSwfHandlers()`, `registerPsdHandlers()`.
 
 ### State Management
 
@@ -57,22 +57,23 @@ The timeline follows Adobe Animate's hold-by-default paradigm:
 - **Default easing is `'step'`** — keyframes hold their value until the next keyframe (no interpolation). This is set via the `DEFAULT_EASING` constant in `src/renderer/types/project.ts`.
 - **Span-based visualization** — the timeline renders colored blocks between keyframes: gray spans = hold (step easing), blue spans = tween (non-step easing, with arrow indicator).
 - **Span selection** — clicking between keyframes selects a span, tracked in `editorStore.selectedSpan` (`{ layerId, startFrame, endFrame }`). This is distinct from keyframe selection.
-- **Frame operations** — F5 extends the layer by 1 frame (`endFrame += 1`). Shift+F5 shrinks by 1 frame (trims keyframes past new end). F6 converts the current frame to a keyframe (interpolated values, inherits span easing) without adding frames. F7 inserts a blank keyframe (default values, step easing) without adding frames. F6/F7 only extend the layer if the playhead is past the current end.
+- **Frame operations** — F5 inserts frames: if the playhead is past `endFrame`, extends to the playhead; otherwise extends by 1 frame. Shift+F5 shrinks by 1 frame (trims keyframes past new end). F6 converts the current frame to a keyframe (interpolated values, inherits span easing). F7 inserts a blank keyframe (default values, step easing). F5/F6/F7 all extend the layer if the playhead is past the current end. Also available via right-click context menu on the timeline.
 - **Tween toggling** — right-click context menu on spans: "Create Classic Tween" sets easing to linear; "Remove Tween" reverts to step. Tween type submenu switches between linear/easeIn/easeOut/easeInOut.
 - **Frame labels** — stored in `project.frameLabels`, rendered as gold flag markers on the TimeRuler.
 
 ### Rendering
 
-`StageRenderer` (`src/renderer/pixi/StageRenderer.ts`) owns the PixiJS `Application` instance. It manages a `worldContainer` holding all sprites/text/shapes plus a `selectionOverlay` on top. It caches textures, text objects, and shape graphics to avoid recreation each frame. The `usePixiStage` hook manages the PixiJS lifecycle and subscribes to store changes.
+`StageRenderer` (`src/renderer/pixi/StageRenderer.ts`) owns the PixiJS `Application` instance. It manages a `worldContainer` holding all sprites/text/shapes plus a `selectionOverlay` on top. It caches textures, text objects, and shape graphics to avoid recreation each frame. For `shapeObject` content, a `shapeObjectDataCache` maintains stable `ShapeData` references per object ID — this prevents the shape graphics cache (`_shapeDataRef` comparison) from invalidating every frame. The `usePixiStage` hook manages the PixiJS lifecycle and subscribes to store changes.
 
 Keyframe interpolation lives in `src/renderer/pixi/interpolation.ts` — supports linear, easeIn, easeOut, easeInOut, and step easing. Step easing holds the previous value (no lerp).
 
-Stage interactions: pointer down on empty stage starts marquee selection; pointer up selects all layers within rect bounds. Right-click on a layer shows a context menu with Copy, Paste, Delete, Save to Objects, Save to Unit (auto-converts to symbol if needed), Bring to Front, Send to Back.
+Stage interactions: pointer down on empty stage starts marquee selection; pointer up selects all layers within rect bounds. Right-click on a layer shows a context menu with Copy, Paste, Delete, Save to Objects, Save to Unit (auto-converts to symbol if needed), Swap Object (for shape/symbol layers with available shape objects), Bring to Front, Send to Back.
 
 ### Data Model
 
 ```
-Project → layers: Layer[] → tracks: PropertyTrack[] → keyframes: Keyframe[]
+Project → layers: Layer[] → contentItems: ContentItem[] + contentKeyframes: ContentKeyframe[]
+                           → tracks: PropertyTrack[] → keyframes: Keyframe[]
 Project → assets: Asset[]
 Project → symbols?: SymbolDef[]
 Project → shapeObjects?: ShapeObjectDef[]
@@ -83,17 +84,22 @@ Project → frameLabels?: Record<number, string>
 **Core types** (defined in `src/renderer/types/project.ts`):
 - `EasingType`: `'linear'` | `'easeIn'` | `'easeOut'` | `'easeInOut'` | `'step'`
 - `TrackProperty`: `'x'` | `'y'` | `'scaleX'` | `'scaleY'` | `'rotation'` | `'opacity'`
-- `LayerType`: `'image'` | `'text'` | `'shape'` | `'symbol'`
+- `LayerType`: `'image'` | `'text'` | `'shape'` | `'symbol'` (derived, not stored)
+- `ContentPayload`: `{ type: 'shape'; shapeData }` | `{ type: 'shapeObject'; shapeObjectId }` | `{ type: 'symbol'; symbolId }` | `{ type: 'image'; assetId }`
 
-Four layer types: `image` (references asset by `assetId`), `text` (has `textData`), `shape` (has `shapeData` with fill paths), `symbol` (nested timeline via `symbolId`). Layers can also reference reusable shape objects via `shapeObjectId`.
+**Content system:** Each layer has a `contentItems[]` palette (the pool of available content: shapes, images, symbols, shapeObjects) and `contentKeyframes[]` (which item is active at each frame, hold-by-default). This allows a single layer to display different content types at different frames (e.g., a symbol at frame 0, a shape at frame 30). Text layers use `textData` directly (not content-swappable).
 
-Layer factory functions in `src/renderer/utils/layerFactory.ts`: `createImageLayer()`, `createTextLayer()`, `createRectangleLayer()`, `createEllipseLayer()`, `createSymbolLayer()`, `createShapeObjectLayer()`.
+Helper functions in `src/renderer/utils/layerContent.ts`: `getActiveContent(layer, frame)`, `getActiveContentPayload(layer, frame)`, `getLayerType(layer)`, `getLayerShapeData(layer, frame, shapeObjects?)`, `getLayerAssetId(layer, frame)`, `getLayerSymbolId(layer, frame)`, `getLayerShapeObjectId(layer, frame)`, `isTextLayer(layer)`. All UI and renderer code uses these helpers instead of reading layer fields directly. **Never read `layer.type`, `layer.assetId`, `layer.symbolId`, `layer.shapeData`, or `layer.shapeObjectId` directly** — these are deprecated legacy fields kept only for migration. Always use the helper functions.
+
+Migration: `src/renderer/utils/migrateProject.ts` auto-converts old `.animate` files (with `layer.type`/`assetId`/`symbolId`) to the new content model on project load.
+
+Layer factory functions in `src/renderer/utils/layerFactory.ts`: `createImageLayer()`, `createTextLayer()`, `createRectangleLayer()`, `createEllipseLayer()`, `createSymbolLayer()`, `createShapeObjectLayer()`. **When creating layers manually** (outside factories), always set `contentItems` and `contentKeyframes` — the renderer resolves what to draw via `getActiveContent()`, so layers without these fields render invisible.
 
 Properties animated per layer: `x`, `y`, `scaleX`, `scaleY`, `rotation`, `opacity`. Each property has its own `PropertyTrack` with sorted keyframes.
 
-Layers also support: `blendMode`, `tintColor`/`tintAmount`, `filters` (blur/dropShadow/glow via `FilterConfig[]`), `assetSwaps` (frame-by-frame asset swapping), `isMask`/`maskLayerId` (masking), `shapeKeyframes` (shape morphing), `outlineMode`/`outlineColor` (colored outline display), `semiTransparent` (reduced opacity preview via Shift+click eye icon).
+Layers also support: `blendMode`, `tintColor`/`tintAmount`, `filters` (blur/dropShadow/glow via `FilterConfig[]`), `isMask`/`maskLayerId` (masking), `shapeKeyframes` (shape morphing), `outlineMode`/`outlineColor` (colored outline display), `semiTransparent` (reduced opacity preview via Shift+click eye icon).
 
-Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId`. Sound infrastructure exists in the type system but playback is not yet wired up.
+Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in `~/.userData/projects/{projectId}/.project_assets/`; layers reference them by `assetId` via content items. Sound infrastructure exists in the type system but playback is not yet wired up.
 
 ### Shape & Vector Support
 
@@ -105,7 +111,7 @@ Asset types: `image`, `sound`, `font`. Assets are stored as local file paths in 
 
 Symbols (`SymbolDef`) are reusable nested timelines containing their own layers. They live in `project.symbols` (an array of `SymbolDef`). Symbol layers reference a `symbolId` and render the symbol's nested timeline. The editor supports nested editing — `editorStore.editingSymbolId` tracks which symbol is being edited. "Convert to Symbol" wraps existing layers into a new symbol; "Edit Symbol" enters the nested timeline.
 
-`ShapeObjectDef` (reusable shape definitions) live in `project.shapeObjects`. `UnitDef` groups related symbols and shape objects together in `project.units`.
+`ShapeObjectDef` (reusable shape definitions) live in `project.shapeObjects`. A `ShapeObjectDef` may have an optional `symbolId` linking it to an associated `SymbolDef` — this is set when the object was created from layers with independent animation (the symbol preserves per-layer animation, the shapeObject stores the combined static shape for thumbnails). `UnitDef` groups related symbols and shape objects together in `project.units`.
 
 ### Hooks
 
@@ -142,10 +148,14 @@ Defined in `src/renderer/hooks/useKeyboardShortcuts.ts`:
 | `Space+drag` | Pan (release without drag = play/pause toggle) |
 | Middle-mouse drag | Pan |
 | `Ctrl+wheel` | Zoom (centered on cursor) |
-| `F5` | Insert frame (extend layer end by 1) |
+| `,` / `.` | Previous / Next frame |
+| `←` / `→` | Previous / Next frame |
+| `Shift+←` / `Shift+→` | Jump to previous / next keyframe on selected layer |
+| `Enter` | Toggle play/pause |
+| `F5` | Insert frame (extend to playhead if past end, otherwise +1) |
 | `Shift+F5` | Remove frame (shrink layer end by 1) |
-| `F6` | Convert frame to keyframe (interpolated values, no frame added) |
-| `F7` | Convert frame to blank keyframe (default values, no frame added) |
+| `F6` | Convert frame to keyframe (interpolated values, extends if needed) |
+| `F7` | Insert blank keyframe (default values, extends if needed) |
 
 ### Interaction Patterns
 
@@ -188,7 +198,7 @@ The three-column body uses `ResizeDivider` components for draggable panel resizi
 
 `StageContainer` handles pan (Space+drag or middle-mouse) and zoom (Ctrl+wheel, centered on cursor). Zoom value of 0 means fit-to-canvas.
 
-Dialogs: `NewProjectDialog` (project presets), `ExportProgressModal` (real-time progress bar), `CreateObjectDialog` (save selected layers as shape object), `SaveToUnitDialog` (name & save symbol/object to a unit).
+Dialogs: `NewProjectDialog` (project presets), `ExportProgressModal` (real-time progress bar), `CreateObjectDialog` (save selected layers as shape object — for multi-layer objects with independent animation, creates both a `SymbolDef` and a `ShapeObjectDef` linked via `symbolId`; the outer layer's tracks are set to the combined center position with inner symbol layers made relative), `SaveToUnitDialog` (name & save symbol/object to a unit), `SwapObjectDialog` (swap a layer's content to a different shape object — searchable grid picker grouped by unit; if the selected object has an associated `symbolId`, swaps to the symbol to preserve internal animation, otherwise swaps to the static shapeObject).
 
 `PropertiesPanel` has two tabs: PROPERTIES (DocumentTab — project name, canvas size, background color, FPS, duration) and LAYER (LayerTab — transform X/Y/scaleX/Y/rotation/opacity with live editing via `mutateProject()` and keyframe diamond indicators per property).
 

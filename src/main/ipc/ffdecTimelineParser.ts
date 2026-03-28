@@ -8,9 +8,8 @@ import type { ImageAssetInfo, ShapeAssetInfo } from './ffdecAssetExtractor'
 interface LayerResult {
   id: string
   name: string
-  type: 'image' | 'shape' | 'text'
-  assetId?: string
-  shapeData?: { paths: any[]; originX: number; originY: number }
+  contentItems?: Array<{ id: string; name: string; content: { type: string; [key: string]: any } }>
+  contentKeyframes?: Array<{ frame: number; contentItemId: string }>
   textData?: { text: string; font: string; color: string; size: number }
   visible: boolean
   locked: boolean
@@ -395,11 +394,12 @@ function buildImageLayer(
       }))
     : placement.frames
 
+  const contentItemId = nanoid()
   return {
     id: nanoid(),
     name,
-    type: 'image',
-    assetId,
+    contentItems: [{ id: contentItemId, name, content: { type: 'image', assetId } }],
+    contentKeyframes: [{ frame: placement.startFrame, contentItemId }],
     visible: true,
     locked: false,
     order: 0,
@@ -414,11 +414,12 @@ function buildShapeLayer(
   shapeData: ShapeAssetInfo['shapeData'],
   placement: PlacementData
 ): LayerResult {
+  const contentItemId = nanoid()
   return {
     id: nanoid(),
     name,
-    type: 'shape',
-    shapeData,
+    contentItems: [{ id: contentItemId, name, content: { type: 'shape', shapeData } }],
+    contentKeyframes: [{ frame: placement.startFrame, contentItemId }],
     visible: true,
     locked: false,
     order: 0,
@@ -472,7 +473,8 @@ function buildTextLayer(
   return {
     id: nanoid(),
     name: 'Text: ' + text.substring(0, 20),
-    type: 'text',
+    contentItems: [],
+    contentKeyframes: [],
     textData: { text, font: fontName, color, size: fontSize },
     visible: true,
     locked: false,

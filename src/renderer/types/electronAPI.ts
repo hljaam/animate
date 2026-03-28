@@ -75,10 +75,9 @@ interface SwfSymbolDef {
 interface SwfLayerResult {
   id: string
   name: string
-  type: 'image' | 'shape' | 'text' | 'symbol'
-  assetId?: string
-  shapeData?: SwfShapeData
-  symbolId?: string
+  contentItems?: Array<{ id: string; name: string; content: { type: string; [key: string]: any } }>
+  contentKeyframes?: Array<{ frame: number; contentItemId: string }>
+  textData?: { text: string; font: string; color: string; size: number }
   visible: boolean
   locked: boolean
   order: number

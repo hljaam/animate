@@ -3,6 +3,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { generateId } from '../../utils/idGenerator'
 import type { ShapePath, ShapeSegment, ShapeObjectDef, ShapeData, PropertyTrack, Layer, SymbolDef } from '../../types/project'
+import { getLayerType, getLayerShapeData, getLayerAssetId, getLayerSymbolId } from '../../utils/layerContent'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -67,31 +68,36 @@ export default function CreateObjectDialog(): React.ReactElement {
       const worldX = xTrack?.keyframes[0]?.value ?? 0
       const worldY = yTrack?.keyframes[0]?.value ?? 0
 
-      if (layer.type === 'shape' && layer.shapeData) {
+      const lt = getLayerType(layer)
+      const shapeData = getLayerShapeData(layer, 0, project.shapeObjects ?? undefined)
+      if (lt === 'shape' && shapeData) {
         layerInfos.push({
-          paths: JSON.parse(JSON.stringify(layer.shapeData.paths)),
-          originX: layer.shapeData.originX,
-          originY: layer.shapeData.originY,
+          paths: JSON.parse(JSON.stringify(shapeData.paths)),
+          originX: shapeData.originX,
+          originY: shapeData.originY,
           worldX,
           worldY
         })
-      } else if (layer.type === 'symbol' && layer.symbolId && project.symbols) {
-        const symDef = project.symbols.find((s) => s.id === layer.symbolId)
+      } else if (lt === 'symbol') {
+        const symId = getLayerSymbolId(layer, 0)
+        const symDef = symId ? project.symbols?.find((s) => s.id === symId) : undefined
         if (symDef) {
           for (const innerLayer of symDef.layers) {
-            if (innerLayer.type === 'shape' && innerLayer.shapeData) {
+            const innerShapeData = getLayerShapeData(innerLayer, 0, project.shapeObjects ?? undefined)
+            if (getLayerType(innerLayer) === 'shape' && innerShapeData) {
               layerInfos.push({
-                paths: JSON.parse(JSON.stringify(innerLayer.shapeData.paths)),
-                originX: innerLayer.shapeData.originX,
-                originY: innerLayer.shapeData.originY,
+                paths: JSON.parse(JSON.stringify(innerShapeData.paths)),
+                originX: innerShapeData.originX,
+                originY: innerShapeData.originY,
                 worldX,
                 worldY
               })
             }
           }
         }
-      } else if (layer.type === 'image' && layer.assetId) {
-        const asset = project.assets.find((a) => a.id === layer.assetId)
+      } else if (lt === 'image') {
+        const assetId = getLayerAssetId(layer, 0)
+        const asset = assetId ? project.assets.find((a) => a.id === assetId) : undefined
         if (asset) {
           const w = asset.width
           const h = asset.height
@@ -103,7 +109,7 @@ export default function CreateObjectDialog(): React.ReactElement {
             { type: 'close' }
           ]
           layerInfos.push({
-            paths: [{ segments, bitmapFillAssetId: layer.assetId }],
+            paths: [{ segments, bitmapFillAssetId: assetId }],
             originX: w / 2,
             originY: h / 2,
             worldX,
@@ -186,10 +192,11 @@ export default function CreateObjectDialog(): React.ReactElement {
       const consumedSymbolIds: string[] = []
 
       for (const sl of sourceLayers) {
-        if (sl.type === 'symbol' && sl.symbolId && project.symbols) {
-          const symDef = project.symbols.find((s) => s.id === sl.symbolId)
+        const slSymId = getLayerSymbolId(sl, 0)
+        if (getLayerType(sl) === 'symbol' && slSymId && project.symbols) {
+          const symDef = project.symbols.find((s) => s.id === slSymId)
           if (symDef) {
-            consumedSymbolIds.push(sl.symbolId)
+            consumedSymbolIds.push(slSymId)
             for (const inner of symDef.layers) {
               const merged: Layer = JSON.parse(JSON.stringify(inner))
               merged.id = generateId()
@@ -217,6 +224,20 @@ export default function CreateObjectDialog(): React.ReactElement {
         }
       }
 
+      // Make inner layers relative to the combined center so the outer
+      // container position is meaningful (not stuck at 0,0). This ensures
+      // that swapping the symbol content for a shapeObject later keeps
+      // the correct canvas position.
+      for (const inner of innerLayers) {
+        for (const track of inner.tracks) {
+          if (track.property === 'x') {
+            for (const kf of track.keyframes) kf.value -= centerWX
+          } else if (track.property === 'y') {
+            for (const kf of track.keyframes) kf.value -= centerWY
+          }
+        }
+      }
+
       const symDuration = Math.max(...innerLayers.map((l) => l.endFrame + 1), 1)
 
       const symbolId = generateId()
@@ -230,19 +251,22 @@ export default function CreateObjectDialog(): React.ReactElement {
       }
 
       const defaultTracks: PropertyTrack[] = [
-        { property: 'x', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
-        { property: 'y', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
+        { property: 'x', keyframes: [{ frame: 0, value: centerWX, easing: 'step' }] },
+        { property: 'y', keyframes: [{ frame: 0, value: centerWY, easing: 'step' }] },
         { property: 'scaleX', keyframes: [{ frame: 0, value: 1, easing: 'step' }] },
         { property: 'scaleY', keyframes: [{ frame: 0, value: 1, easing: 'step' }] },
         { property: 'rotation', keyframes: [{ frame: 0, value: 0, easing: 'step' }] },
         { property: 'opacity', keyframes: [{ frame: 0, value: 1, easing: 'step' }] }
       ]
 
+      const objectId = generateId()
+      const symContentItemId = generateId()
+
       const replacementLayer = {
         id: replacementLayerId,
         name: trimmed,
-        type: 'symbol' as const,
-        symbolId,
+        contentItems: [{ id: symContentItemId, name: trimmed, content: { type: 'symbol' as const, symbolId } }],
+        contentKeyframes: [{ frame: objectStartFrame, contentItemId: symContentItemId }],
         visible: true,
         locked: false,
         order: 0,
@@ -251,14 +275,14 @@ export default function CreateObjectDialog(): React.ReactElement {
         tracks: defaultTracks
       }
 
-      const objectId = generateId()
       const shapeObject: ShapeObjectDef = {
         id: objectId,
         name: trimmed,
         paths: allPaths,
         originX: combinedOriginX,
         originY: combinedOriginY,
-        layers: []
+        layers: [],
+        symbolId
       }
 
       useProjectStore.getState().applyAction(`Save object "${trimmed}"`, (draft) => {
@@ -311,16 +335,13 @@ export default function CreateObjectDialog(): React.ReactElement {
         layers: sourceLayers.map((l) => JSON.parse(JSON.stringify(l)))
       }
 
+      const objContentItemId = generateId()
+
       const replacementLayer = {
         id: replacementLayerId,
         name: trimmed,
-        type: 'shape' as const,
-        shapeObjectId: objectId,
-        shapeData: {
-          paths: JSON.parse(JSON.stringify(allPaths)),
-          originX: combinedOriginX,
-          originY: combinedOriginY
-        } as ShapeData,
+        contentItems: [{ id: objContentItemId, name: trimmed, content: { type: 'shapeObject' as const, shapeObjectId: objectId } }],
+        contentKeyframes: [{ frame: objectStartFrame, contentItemId: objContentItemId }],
         visible: true,
         locked: false,
         order: 0,

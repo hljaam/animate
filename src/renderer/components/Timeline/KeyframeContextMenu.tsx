@@ -6,6 +6,7 @@ import { DEFAULT_LAYER_PROPS, ALL_TRACK_PROPERTIES, DEFAULT_EASING } from '../..
 import { getInterpolatedProps } from '../../pixi/interpolation'
 import { copyLayers, getClipboard } from '../../store/clipboardStore'
 import { generateId } from '../../utils/idGenerator'
+import { getLayerType, getLayerSymbolId } from '../../utils/layerContent'
 import { useContextMenuPosition } from '../../hooks/useContextMenuPosition'
 import { useClickOutside } from '../../hooks/useClickOutside'
 import { PopoverMenu, MenuItem, MenuSeparator, MenuLabel } from '../ui/popover-menu'
@@ -108,6 +109,21 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
       for (const track of draftLayer.tracks) {
         track.keyframes = track.keyframes.filter((kf) => kf.frame !== frame)
       }
+    })
+    onClose()
+  }
+
+  function handleInsertFrame(): void {
+    useProjectStore.getState().applyAction('Insert frame', (draft) => {
+      const draftLayer = draft.layers.find((l) => l.id === layer.id)
+      if (!draftLayer) return
+      if (frame > draftLayer.endFrame) {
+        draftLayer.endFrame = frame
+      } else {
+        draftLayer.endFrame += 1
+      }
+      const maxEnd = Math.max(...draft.layers.map((l) => l.endFrame))
+      if (maxEnd >= draft.durationFrames) draft.durationFrames = maxEnd + 1
     })
     onClose()
   }
@@ -233,6 +249,7 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
     if (!project) return
     const symbolId = generateId()
     const symbolLayerId = generateId()
+    const contentItemId = generateId()
     const name = layer.name
     const originalLayer = JSON.parse(JSON.stringify(layer))
     state.applyAction(`Convert to symbol "${name}"`, (draft) => {
@@ -254,6 +271,8 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
         name,
         type: 'symbol' as const,
         symbolId,
+        contentItems: [{ id: contentItemId, name, content: { type: 'symbol' as const, symbolId } }],
+        contentKeyframes: [{ frame: originalLayer.startFrame, contentItemId }],
         visible: true,
         locked: false,
         order: originalLayer.order,
@@ -267,8 +286,8 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
   }
 
   function handleEditSymbol(): void {
-    if (layer.type === 'symbol' && layer.symbolId) {
-      useEditorStore.getState().setEditingSymbolId(layer.symbolId)
+    if (getLayerType(layer) === 'symbol' && getLayerSymbolId(layer, 0)) {
+      useEditorStore.getState().setEditingSymbolId(getLayerSymbolId(layer, 0)!)
     }
     onClose()
   }
@@ -279,9 +298,9 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
     if (!project) return
     const shapeLayerIds = selectedIds.filter((id) => {
       const l = project.layers.find((ly) => ly.id === id)
-      return l?.type === 'shape'
+      return l ? getLayerType(l) === 'shape' : false
     })
-    const ids = shapeLayerIds.length > 0 ? shapeLayerIds : (layer.type === 'shape' ? [layer.id] : [])
+    const ids = shapeLayerIds.length > 0 ? shapeLayerIds : (getLayerType(layer) === 'shape' ? [layer.id] : [])
     if (ids.length > 0) {
       useEditorStore.getState().setShowCreateObjectDialog({ layerIds: ids })
     }
@@ -291,12 +310,12 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
   const hasShapeLayers = (() => {
     const selectedIds = useEditorStore.getState().selectedLayerIds
     const project = useProjectStore.getState().project
-    if (!project) return layer.type === 'shape'
+    if (!project) return getLayerType(layer) === 'shape'
     const anySelected = selectedIds.some((id) => {
       const l = project.layers.find((ly) => ly.id === id)
-      return l?.type === 'shape'
+      return l ? getLayerType(l) === 'shape' : false
     })
-    return anySelected || layer.type === 'shape'
+    return anySelected || getLayerType(layer) === 'shape'
   })()
 
   return (
@@ -352,6 +371,7 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
       )}
 
       <MenuSeparator />
+      <MenuItem onClick={handleInsertFrame}>Insert Frame (F5)</MenuItem>
       <MenuItem onClick={handleRemoveFrame}>Remove Frame</MenuItem>
 
       {/* Layer section */}
@@ -363,7 +383,7 @@ export default function KeyframeContextMenu({ layer, frame, x, y, onClose }: Pro
       <MenuItem onClick={handleToggleVisibility}>{layer.visible ? 'Hide' : 'Show'}</MenuItem>
       <MenuItem onClick={handleToggleLock}>{layer.locked ? 'Unlock' : 'Lock'}</MenuItem>
       <MenuSeparator />
-      {layer.type !== 'symbol' ? (
+      {getLayerType(layer) !== 'symbol' ? (
         <MenuItem onClick={handleConvertToSymbol}>Convert to Symbol</MenuItem>
       ) : (
         <MenuItem onClick={handleEditSymbol}>Edit Symbol</MenuItem>
